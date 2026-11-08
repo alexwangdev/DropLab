@@ -30,7 +30,7 @@ export default function Negotiation({ dropId, items }: Props) {
         <span className="badge badge-seed">SIMULATED SUPPLIERS</span> These counterparties are simulated and labelled so.
         Quotes are signed and checked before use. The mandate still gates the payment, and negotiation does not change the charged price.
       </p>
-      <button onClick={run} disabled={items.length === 0}>Ask simulated suppliers</button>
+      <button data-demo="negotiate" onClick={run} disabled={items.length === 0}>Ask simulated suppliers</button>
       {error && <div className="error">{error}</div>}
       {result && (
         <>

@@ -176,5 +176,5 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
     g.refresh();
   }, [milestones, holds, alerts]);
 
-  return <div ref={host} className="gantt-wrap" />;
+  return <div ref={host} className="gantt-wrap" data-demo="gantt-task" />;
 }

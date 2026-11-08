@@ -5,6 +5,7 @@ import CheckoutPage from './pages/CheckoutPage';
 import StudioPage from './pages/StudioPage';
 import StorePage from './pages/StorePage';
 import EvidencePage from './pages/EvidencePage';
+import DemoPlayer from './components/DemoPlayer';
 
 export default function App() {
   const location = useLocation();
@@ -26,6 +27,7 @@ export default function App() {
         </Routes>
         </div>
       </main>
+      <DemoPlayer />
     </div>
   );
 }

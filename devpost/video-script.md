@@ -47,3 +47,14 @@ Only show a price move if it happened for real. If no live Channel3 move has bee
 - The AG Grid trial key expires on 8 December 2026. Keep it valid until recording.
 - Bryntum shows a Trial badge; it is expected for a trial key.
 - The sandbox buyer password is not in the repository. Ask the presenter for it. Show the login without revealing it.
+
+## Record with demo mode
+
+The in-app demo drives the real app through the three acts above, so you only press Record, Start and Stop.
+
+1. Open the app (on the live Render URL once deployed, otherwise localhost), then go to `/create?demo=autoplay`. Or press **▶ Play demo** on the create page.
+2. Press Record in your screen recorder. Then press **Start demo**. That click also unlocks the narration. Don't touch anything else.
+3. **PayPal gate (about 1 minute, the only human step):** the demo pauses at the checkout and asks you to approve the order on PayPal sandbox as the buyer. Log in yourself, approve, come back to the app, and press **Resume**. The timer is stopped while you approve, so this time does not count against the 170-second budget. If the drop already has a real capture, the gate is skipped.
+4. The demo runs to the end card ("Demo complete — you can stop recording."), which shows the real IDs from `bench/results.json`. Press Stop.
+
+The narration and captions live in `client/src/demo-script.ts`. That file is the single source of truth: change the words there, not in this script. Each line is under 25 words, and the whole run is under 170 seconds.

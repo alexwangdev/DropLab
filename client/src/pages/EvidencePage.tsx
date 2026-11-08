@@ -89,7 +89,7 @@ export default function EvidencePage() {
       <h1>Evidence</h1>
       <p className="muted">Counts, not claims. Each number names its source. <Link to={`/drop/${id}`}>Back to the drop</Link></p>
 
-      <h2>Tests</h2>
+      <h2 data-demo="tests">Tests</h2>
       <p>
         {b.present ? (
           <>
@@ -101,7 +101,7 @@ export default function EvidencePage() {
         <span className="muted"> · source: <code>bench/results.json</code>{b.present && b.ran_at ? ` (ran ${String(b.ran_at)})` : ''}</span>
       </p>
 
-      <h2>Price re-checks</h2>
+      <h2 data-demo="counts">Price re-checks</h2>
       <ul>
         <li><CountNum value={c.price_checks_run} /> re-checks run · <CountNum value={c.price_checks_caught} /> caught a move (gate reopened)</li>
         <li><CountNum value={c.out_of_stock_caught} /> out of stock · <b className="num">{money(c.extra_charge_avoided_cents)}</b> extra charge avoided (price increases the gate stopped)</li>
@@ -134,7 +134,7 @@ export default function EvidencePage() {
       <h2>Ledger</h2>
       <p>
         <CountNum value={c.ledger_entries} /> entries.{' '}
-        <button onClick={onVerify} disabled={busy}>Verify ledger</button>
+        <button data-demo="verify" onClick={onVerify} disabled={busy}>Verify ledger</button>
         {chain && (
           <span key={chain.ok ? 'ok' : 'broken'} className={`badge ${chain.ok ? 'badge-cleared' : 'badge-refused'}${chain.ok ? '' : ' badge-broken-shake'}`} style={{ marginLeft: 8 }}>
             {chain.ok ? `CHAIN OK · ${chain.entries} entries` : `BROKEN at #${chain.broken_at_seq}`}
@@ -143,7 +143,7 @@ export default function EvidencePage() {
       </p>
       <p className="muted">Source: <code>GET /api/drops/:id/ledger/verify</code> (server recomputes the whole chain).</p>
 
-      <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+      <label data-demo="tamper" style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
         <input type="checkbox" checked={showTamper} onChange={(e) => onTamperToggle(e.target.checked)} /> Show what tampering looks like
       </label>
       {showTamper && tamper && (

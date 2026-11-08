@@ -119,7 +119,8 @@ export default function CreatePage() {
         <label>Product search<input value={query} onChange={(e) => setQuery(e.target.value)} /></label>
         <button type="submit" disabled={busy}>{busy ? 'Planning…' : 'Plan drop'}</button>
       </form>
-      <p className="muted">Judges: <button type="button" disabled={busy} onClick={onLoadDemo}>Load demo drop</button> one click, no typing.</p>
+      <p className="muted">Judges: <button type="button" data-demo="load-demo" disabled={busy} onClick={onLoadDemo}>Load demo drop</button> one click, no typing.</p>
+      <p className="muted"><button type="button" data-demo="play-demo" disabled={busy} onClick={() => navigate('/create?demo=autoplay')}>▶ Play demo</button> hands-free walkthrough for the video.</p>
       {error && <div className="error">{error}</div>}
     </div>
   );

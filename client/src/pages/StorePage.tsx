@@ -67,12 +67,12 @@ export default function StorePage() {
         {msLeft === null ? (
           <p className="muted">No closing date set</p>
         ) : (
-          <div className="countdown" aria-live="off">
+          <div className="countdown" aria-live="off" data-demo="countdown">
             <span className="countdown-label">{closed ? 'Closed' : 'Closes in'}</span>
             <span className="countdown-value"><span key={closed ? 'closed' : formatCountdown(msLeft)} className="tick">{closed ? '—' : formatCountdown(msLeft)}</span></span>
           </div>
         )}
-        <div className="sell-through">
+        <div className="sell-through" data-demo="sell-through">
           <div className="sell-through-text">
             <b>#{sell.sold} of {sell.capacity}</b> <span className="muted">pre-orders captured</span>
           </div>
@@ -96,6 +96,7 @@ export default function StorePage() {
             </div>
             <button
               className="store-reserve"
+              data-demo={i === 0 ? "reserve" : undefined}
               disabled={soldOut || closed || p.availability !== 'InStock'}
               onClick={() => reserve(p)}
             >

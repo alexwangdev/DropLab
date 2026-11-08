@@ -1,0 +1,68 @@
+/* Demo player (hands-free video mode). Outline and transform only: no layout shift. */
+.demo-highlight {
+  outline: 4px solid #0070ba;
+  outline-offset: 4px;
+  border-radius: 6px;
+  transition: outline-color 200ms ease-out;
+}
+.demo-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.demo-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 28px 32px;
+  max-width: 560px;
+  width: calc(100% - 48px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
+}
+.demo-card h2 { margin-top: 0; }
+.demo-muted { color: #5b6473; font-size: 14px; }
+.demo-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+.demo-secondary { background: #5b6473; }
+.demo-caption {
+  position: fixed;
+  left: 50%;
+  bottom: 84px;
+  transform: translateX(-50%);
+  background: rgba(17, 24, 39, 0.88);
+  color: #fff;
+  padding: 10px 18px;
+  border-radius: 8px;
+  font-size: 18px;
+  max-width: 90vw;
+  text-align: center;
+  z-index: 999;
+  pointer-events: none;
+}
+.demo-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: #fff;
+  border-top: 1px solid #d6dbe3;
+  padding: 10px 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 14px;
+  z-index: 999;
+}
+.demo-progress { flex: 1 1 200px; height: 6px; background: #e6e9ef; border-radius: 999px; overflow: hidden; min-width: 160px; }
+.demo-progress > div { height: 100%; background: #0070ba; transform-origin: left center; transition: transform 300ms ease-out; }
+.demo-note { color: #8a5a00; font-style: normal; }
+.demo-paused { position: fixed; top: 12px; right: 12px; background: #8a5a00; color: #fff; padding: 4px 10px; border-radius: 999px; font-size: 13px; z-index: 999; }
+.demo-ids { border-collapse: collapse; margin: 8px 0; font-size: 14px; }
+.demo-ids th { text-align: left; padding: 4px 12px 4px 0; color: #5b6473; font-weight: 600; }
+.demo-ids td { font-family: ui-monospace, monospace; padding: 4px 0; }
+@media (prefers-reduced-motion: reduce) {
+  .demo-highlight, .demo-progress > div { transition: none; }
+}

@@ -144,7 +144,7 @@ export default function CheckoutPage() {
     return (
       <div className="card">
         {sellAfter && isCompleted(captured) && (
-          <div className="joined">
+          <div className="joined" data-demo="joined">
             <h1>You're in — #{sellAfter.sold} of {sellAfter.capacity}</h1>
             <p className="muted">Your pre-order is captured on PayPal (sandbox).</p>
           </div>
@@ -155,10 +155,10 @@ export default function CheckoutPage() {
         <p><b>Status:</b> {captured.status}</p>
         <p className="total">Total {money(captured.total_cents)}</p>
         <p className="muted">Sandbox only. No real money moved.</p>
-        <h2>Where the money goes</h2>
+        <h2 data-demo="waterfall">Where the money goes</h2>
         <MoneyWaterfall totalCents={captured.total_cents} items={batch?.items ?? null} batchId={batch?.id ?? null} />
         {!batch && (
-          <button onClick={onPayout} disabled={payoutBusy}>
+          <button data-demo="split-payout" onClick={onPayout} disabled={payoutBusy}>
             {payoutBusy ? 'Sending payout…' : 'Split payout (70/20/10)'}
           </button>
         )}
@@ -196,7 +196,7 @@ export default function CheckoutPage() {
             ))}
           </ul>
           <p className="total">Total {money(total)} (USD, PayPal sandbox)</p>
-          <button onClick={onPay} disabled={stage === 'redirecting'}>
+          <button data-demo="pay" onClick={onPay} disabled={stage === 'redirecting'}>
             {stage === 'redirecting' ? 'Opening PayPal…' : 'Pay with PayPal (sandbox)'}
           </button>
         </>

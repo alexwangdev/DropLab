@@ -64,7 +64,7 @@ export default function ProductGrid({ products, onSelectionChange, selectedIds }
   return (
     <div>
       <div className="row" style={{ marginBottom: 8 }}>
-        <button onClick={showAiSchema}>Show AI Toolkit schema</button>
+        <button data-demo="ai-schema" onClick={showAiSchema}>Show AI Toolkit schema</button>
         <span className="muted">AG Grid AI Toolkit (installed module), not AG Studio.</span>
       </div>
       {aiSchema && <pre style={{ maxHeight: 220, overflow: 'auto', background: '#f8fafc', padding: 8, fontSize: 12 }}>{aiSchema}</pre>}
