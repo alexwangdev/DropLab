@@ -126,6 +126,19 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       },
     });
     lastPayout = payoutStart(gantt);
+
+    // Demo hook for screenshots only: ?edit=<milestone> opens that task's editor on load, so a
+    // headless capture (which cannot double-click) shows the editor. Normal use is double-click.
+    const editName = new URLSearchParams(window.location.search).get('edit');
+    if (editName) {
+      setTimeout(() => {
+        const t = gantt.taskStore.find((r: any) => r.name === editName) as any;
+        if (t) {
+          host.current?.scrollIntoView({ block: 'center' });
+          gantt.features.taskEdit.editTask(t);
+        }
+      }, 1500);
+    }
     startsByName.clear();
     gantt.taskStore.forEach((t: any) => {
       if (t.startDate) startsByName.set(t.name, isoDay(new Date(t.startDate)));
