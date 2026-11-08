@@ -1,0 +1,33 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        # CI-only throwaway credentials for the test service container. Not a secret, and not used anywhere else.
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: droplab_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      DATABASE_URL_TEST: postgres://postgres:postgres@localhost:5432/droplab_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Install
+        run: npm run install:all
+      - name: Build server and client
+        run: npm run build
+      - name: Test (unit and route tests)
+        run: npm test

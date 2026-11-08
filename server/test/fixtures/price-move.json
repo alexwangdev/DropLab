@@ -1,0 +1,8 @@
+{
+  "_label": "FIXTURE — simulated plan price, not a live Channel3 move",
+  "_note": "Used by the refusal demo. The plan price is set 10% below the live price to exercise the gate. It is not an observed market change.",
+  "product_title": "Beach Tote Bag (fixture)",
+  "plan_price_cents": 2520,
+  "live_price_cents": 2800,
+  "simulated_drift_pct": 11.11
+}

@@ -44,10 +44,10 @@ Keys go in the root `.env` (or `server/.env`), never in `client/`, never with a 
 
 | Sponsor | What DropLab uses it for | Where to see it |
 |---|---|---|
-| **Channel3** | Product search (`POST /v1/search`) for the plan. Live price and stock re-check (`GET /v1/products/{id}`) at the gate, before any order. | `server/src/channel3.ts` · [mandate and timeline screenshot](docs/screenshots/mandate-ledger.png) |
-| **Bryntum** | Live Gantt (`@bryntum/gantt-community`) with dependencies, lags, drag cascade, a Payout-moved warning, and hold rebooking on move. | `client/src/components/TimelineGantt.tsx` · [screenshot](docs/screenshots/mandate-ledger.png) |
+| **Channel3** | Product search (`POST /v1/search`, up to 6 in-stock USD products) for the plan. Live price and stock re-check (`GET /v1/products/{id}`) before any order. Price comparison and thumbnails on the Drop page. MCP is documented and deferred (`docs/channel3-mcp.md`). | `server/src/channel3.ts` · `docs/channel3-price-moves.md` |
+| **Bryntum** | Live Gantt (`@bryntum/gantt-community`, Community tier) with dependencies and lags, drag cascade, a Payout-moved warning, hold labels drawn on the milestone bars, and owner and status columns. Critical path and baselines are not in the Community tier, so they are not built. | `client/src/components/TimelineGantt.tsx` · [screenshot](docs/screenshots/mandate-ledger.png) |
 | **AG Grid / AG Studio** | AG Grid Enterprise: product grid (grouping by retailer, summed prices, sidebar pivot), the hash-chained ledger grid with a verdict pill renderer, and an integrated pie chart of the real payout split. One shared theme for every grid. Licensed with an AG Grid and AG Charts Enterprise trial key (evaluation only). | `client/src/components/ProductGrid.tsx`, `LedgerGrid.tsx`, `PayoutChart.tsx`, `theme.ts`, `license.ts` · [chart screenshot](docs/screenshots/ag-grid-chart.png) |
-| **APIMatic** | PayPal context plugin in Claude Code. The spec-driven trace shows the model building an Orders v2 request from PayPal's official OpenAPI schema. | [docs/apimatic-trace.md](docs/apimatic-trace.md) · `server/scripts/paypal-orders-trace.ts` |
+| **APIMatic** | PayPal context plugin 0.4.1, installed in Claude Code and recorded in the repo (`docs/apimatic/`: version, skills, install commit, copied skill files). A trace shows Orders v2 create, Orders v2 capture and Payouts v1 request bodies built from PayPal's official spec, with checks. The PayPal calls in `server/src/paypal.ts` were generated from that spec, not from memory. The plugin is not a runtime dependency. | [docs/apimatic/](docs/apimatic/README.md) · [trace](docs/apimatic-trace.md) · `server/scripts/apimatic-trace-all.ts` |
 | **Render** | `render.yaml` blueprint: static site, API web service, Postgres, and a daily Channel3 price re-check cron. **Not deployed.** | [render.yaml](render.yaml) |
 | **PayPal** | Orders v2 create and capture (sandbox), Payouts v1 batch split and status. | `server/src/paypal.ts` · [checkout screenshot](docs/screenshots/checkout-payout.png) |
 
@@ -95,7 +95,7 @@ Drop `0013e42c-4a74-4033-86a0-b856ba98c454`, three products, $267.00:
 | Duplicate payout | Second call returned the same batch with `reused: true`. No second PayPal call. |
 | Holds | Ship hold $100.00 (20% of budget) voided on drag (released $100.00), new hold placed. |
 | Ledger | 13 entries, chain verified. Tamper test at seq 5 returned `broken_at_seq: 5`, and the original value was restored. |
-| `npm run verify` | `bench/results.json`: 23 tests passed, live capture and payout IDs above, ledger verified. |
+| `npm run verify` | `bench/results.json`: 38 tests passed (rules, negotiation, routes); live capture `86C68099AH8390838` and payout batch `CQJPX9Q64CJDQ` read back from the run above; ledger verified (15 entries). |
 
 Earlier run (in-memory build, before the Postgres move): batch `5XKZUR3UGJYCN` ($65.00 split, all `SUCCESS`).
 
@@ -106,16 +106,20 @@ APIMatic trace: [docs/apimatic-trace.md](docs/apimatic-trace.md), passed on atte
 - **AG Grid trial key:** evaluation only, single application. It deactivates on 8 December 2026, but judging runs to 15 December 2026. Request an extension or a production key before then. Production use is not permitted under this key.
 - **Holds are simulated.** The PayPal Orders v2 `authorize` call is in the spec, and the capture and void endpoints are confirmed in PayPal's docs (`/v2/payments/authorizations/{id}/capture` and `/void`). Each hold would need its own buyer approval. That flow is not wired in this build, so holds are labelled "Simulated hold" in the UI and the database, and no PayPal authorization ID is recorded.
 - **Hold capture amount:** it is 20% of completed sales, capped at the held amount (server math). It is not a real PayPal capture.
-- **Gantt bar labels:** hold status shows in a list under the Gantt, not on the bars.
+- **Gantt labels:** hold status is drawn on the milestone bars ('simulated' is in the label) and also listed under the Gantt.
 - **No margin chart.** The spec asks for margin by product, but there is no supplier cost data, so no chart is built.
-- **Negotiation (F6) and payroll (F7) are not built.** They were optional, after F1–F4.
-- **Tests cover the rules, not the HTTP routes.** The 23 tests cover mandate verdicts, approval rules, the gate, the ledger hash chain and tamper detection, the 70/20/10 split, and payout idempotency decisions. The route-level behaviour was checked in the browser and with `curl`.
+- **Negotiation (F6) is simulated.** Three suppliers are labelled 'Simulated supplier' in the UI, the API and the ledger. Each quote is HMAC-signed with a static key that exists only to demonstrate the check. A counter-offer never goes below 90% of list, and a result above the mandate ceiling is refused. The saving is shown but not applied to the charge.
+- **Payroll (F7) is cut.** It was a second product and is not built.
+- **Real holds (F3) stay simulated.** The PayPal Orders v2 `authorize` call is in the spec, and capture and void are confirmed in PayPal's docs. Each hold needs its own buyer approval, and that flow was not run end to end in this build. No PayPal authorization ID is recorded.
+- **Tests:** 38 in total. 23 rule tests, 4 negotiation tests, and 11 HTTP route tests that run against a separate `droplab_test` database. None of them calls PayPal, Channel3 or the LLM. The CI workflow runs the build and the tests on push.
 - **The Postgres browser run is done.** It includes mandate, approval, payment, capture, payout, gate reopen, hold rebooking, and ledger verification.
 - **Channel3 price changes arrive in the demo as a simulated plan price.** The gate compares a plan price 10% below live against the live Channel3 price. Real moves depend on Channel3's data.
 - **Payout recipients are sandbox accounts.** The sandbox seller account cannot receive a payout (PayPal returns `SELF_PAY_NOT_ALLOWED`). The three shares go to three separate accounts, set by `PAYOUT_CREATOR_EMAIL`, `PAYOUT_SUPPLIER_EMAIL` and `PAYOUT_PLATFORM_EMAIL`.
 
 ## Not done
 
-- **Render deploy.** `render.yaml` is ready. Deploy from your Render account.
-- **Devpost and YouTube video** (under three minutes, following the spec's demo script with the refusal beat).
-- **Git and GitHub:** repo is at [alexwangdev/DropLab](https://github.com/alexwangdev/DropLab).
+Only three steps remain, and each is yours. See [SUBMISSION_CHECKLIST.md](SUBMISSION_CHECKLIST.md):
+
+1. **Render deploy**: follow `devpost/deploy-checklist.md`.
+2. **Video**: record and upload to YouTube, under three minutes, using `devpost/video-script.md`.
+3. **Devpost submission**: paste `devpost/description.md` and `devpost/tools.md`.

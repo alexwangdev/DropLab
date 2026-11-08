@@ -4,6 +4,8 @@ import { api_, apiF, money, type Drop, type Evaluation, type HoldRow, type Ledge
 import ProductGrid from '../components/ProductGrid';
 import TimelineGantt from '../components/TimelineGantt';
 import LedgerGrid from '../components/LedgerGrid';
+import Compare from '../components/Compare';
+import Negotiation from '../components/Negotiation';
 import PayoutChart, { type SplitRow } from '../components/PayoutChart';
 
 const badge = (v: string) =>
@@ -158,7 +160,7 @@ export default function DropPage() {
       <div className="card">
         <h2>Timeline</h2>
         {warning && <div className="error">{warning}</div>}
-        <TimelineGantt startDate={drop.start_date} milestones={milestones} onWarning={setWarning} onMoved={onGateDrift} />
+        <TimelineGantt startDate={drop.start_date} milestones={milestones} holds={holds} onWarning={setWarning} onMoved={onGateDrift} />
         <h3>Holds (simulated: PayPal authorize not wired in this build)</h3>
         <ul>
           {holds.map((h) => (
@@ -174,6 +176,13 @@ export default function DropPage() {
             </li>
           )}
         </ul>
+      </div>
+
+      <div className="card">
+        <h2>Compare prices</h2>
+        <Compare selected={selected} />
+        <h3>Negotiate (simulated)</h3>
+        <Negotiation dropId={id} items={items} />
       </div>
 
       <div className="card">

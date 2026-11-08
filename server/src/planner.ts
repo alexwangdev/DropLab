@@ -1,3 +1,4 @@
+import { SEARCH_LIMIT } from './search-limit.js';
 import OpenAI from 'openai';
 import { NEBIUS_API_KEY, NEBIUS_BASE_URL, NEBIUS_MODEL } from './config.js';
 import { searchProducts, type FoundProduct } from './channel3.js';
@@ -60,7 +61,7 @@ export async function planWithLLM(prompt: string): Promise<PlanResult> {
       const args = JSON.parse(call.function.arguments || '{}');
       query = String(args.query ?? '').slice(0, 100);
       trace.push(`${call.function.name}(${JSON.stringify({ query })})`);
-      products = await searchProducts(query, 4);
+      products = await searchProducts(query, SEARCH_LIMIT);
       messages.push({
         role: 'tool',
         tool_call_id: call.id,

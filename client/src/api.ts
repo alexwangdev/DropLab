@@ -112,7 +112,21 @@ export interface HoldRow {
   status: 'held' | 'captured' | 'voided';
 }
 
+export interface NegotiationOutcome {
+  supplier_name: string;
+  label: 'Simulated supplier';
+  verified: boolean;
+  quote_cents: number;
+  negotiated_cents: number | null;
+  status: string;
+}
+
 export const apiF = {
+  negotiate: (dropId: string, items: { product_id: string; qty: number }[]) =>
+    api<{ label: string; list_cents: number; ceiling_cents: number; outcomes: NegotiationOutcome[]; best: NegotiationOutcome | null; saving_cents: number; applied_to_charge: boolean }>(
+      `/drops/${dropId}/negotiate`,
+      { method: 'POST', body: JSON.stringify({ items }) },
+    ),
   getMandate: (dropId: string) => api<MandateRow>(`/drops/${dropId}/mandate`),
   setMandate: (dropId: string, body: { budget_cents: number; per_item_cap_cents: number; ask_above_cents: number; closes_at: string | null }) =>
     api<MandateRow>(`/drops/${dropId}/mandate`, { method: 'POST', body: JSON.stringify(body) }),

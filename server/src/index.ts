@@ -7,6 +7,7 @@ import { recheckProduct, searchProducts } from './channel3.js';
 import { captureOrder, createOrder, createPayout, getPayout, PayPalError } from './paypal.js';
 import { seedProducts } from './seed.js';
 import { planWithLLM } from './planner.js';
+import { SEARCH_LIMIT } from './search-limit.js';
 import * as store from './store.js';
 import * as gov from './governance.js';
 import { splitCents } from './money.js';
@@ -14,8 +15,9 @@ import { cartTotal, evaluateMandate, planHash, type Line, type MandateRules, typ
 import { gateDecision, type GateChange } from './gate.js';
 import { decidePayout } from './payout.js';
 import { verifyChain } from './ledger.js';
+import { negotiate } from './negotiate.js';
 
-const app = express();
+export const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
 app.use(express.json());
 
@@ -200,7 +202,7 @@ app.post('/api/drops/:id/plan', route(async (req, res) => {
     console.error('[plan] LLM planner failed, falling back to Channel3 search:', error);
     source = 'channel3';
     try {
-      const found = await searchProducts(query, 4);
+      const found = await searchProducts(query, SEARCH_LIMIT);
       if (found.length === 0) throw new Error('Channel3 returned no in-stock products with a USD price');
       list = found.map((p) => ({ ...p, source: 'channel3' as const }));
     } catch (e2) {
@@ -656,6 +658,32 @@ app.post('/api/demo/duplicate-payout', route(async (req, res) => {
   res.json({ first: { http_status: first.status, ...first.body }, second: { http_status: second.status, ...second.body }, same_batch: first.body.paypal_batch_id === second.body.paypal_batch_id });
 }));
 
+// ---------- F6 simulated negotiation ----------
+
+// POST /api/drops/:id/negotiate { items } -> outcomes from SIMULATED suppliers. Shows a saving.
+// It does not change the charged price. The mandate and the live gate still gate every payment.
+app.post('/api/drops/:id/negotiate', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const parsed = parseItems(req.body?.items);
+  if ('error' in parsed) return res.status(400).json(parsed);
+  const sel = await linesFor(drop.id, parsed.items);
+  if ('error' in sel) return res.status(400).json(sel);
+  const list = cartTotal(sel.lines);
+  const rules = rulesFrom(drop, await gov.getMandate(drop.id));
+  const out = negotiate(list, rules.ask_above_cents);
+  await gov.tx(async (c) => {
+    await gov.appendLedger(c, drop.id, {
+      kind: 'negotiation',
+      actor: 'simulated-supplier',
+      amount_cents: out.best?.negotiated_cents ?? list,
+      verdict: out.best ? 'Simulated' : 'Refused',
+      detail: { simulated: true, list_cents: list, ceiling_cents: rules.ask_above_cents, saving_cents: out.saving_cents, outcomes: out.outcomes },
+    });
+  });
+  res.json({ label: 'Simulated supplier', simulated: true, list_cents: list, ceiling_cents: rules.ask_above_cents, ...out, applied_to_charge: false });
+}));
+
 // ---------- error handling ----------
 
 function errorBody(e: unknown, action: string): { status: number; body: Record<string, unknown> } {
@@ -678,14 +706,16 @@ app.use((err: unknown, _req: express.Request, res: express.Response, _next: expr
   res.status(500).json({ error: (err as Error).message });
 });
 
-migrate()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`DropLab server on http://localhost:${PORT} (Postgres ready)`);
+// Start the server unless a test imports the app (DROPLAB_TEST=1). Tests run migrate() themselves.
+if (process.env.DROPLAB_TEST !== '1') {
+  migrate()
+    .then(() => {
+      app.listen(PORT, () => {
+        console.log(`DropLab server on http://localhost:${PORT} (Postgres ready)`);
+      });
+    })
+    .catch((e) => {
+      console.error('[startup] database migration failed:', (e as Error).message);
+      process.exit(1);
     });
-  })
-  .catch((e) => {
-    console.error('[startup] database migration failed:', (e as Error).message);
-    process.exit(1);
-  });
-
+}
