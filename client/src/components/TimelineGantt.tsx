@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-import { Gantt } from '@bryntum/gantt-community';
-import '@bryntum/gantt-community/stockholm.css';
+import { Gantt } from '@bryntum/gantt-enterprise';
+import '@bryntum/gantt-enterprise/stockholm.css';
 import type { HoldRow, Milestone } from '../api';
 import { money } from '../api';
 
@@ -50,6 +50,8 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       startDate: day(m.start_day),
       duration: m.start_day === m.end_day ? 0 : m.end_day - m.start_day + 1,
       durationUnit: 'day' as const,
+      // Baseline = the planned dates from the server, kept fixed. A drag shows the moved bar against it.
+      baselines: [{ name: 'Plan', startDate: day(m.start_day), endDate: day(m.end_day + (m.start_day === m.end_day ? 0 : 1)) }],
     }));
     // Dependencies carry a lag equal to the spec gap between predecessor end and successor start.
     // Without it, Bryntum pulls each successor to its predecessor's end and the Day 2/3/6 dates are lost.
@@ -81,6 +83,7 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       height: 280,
       viewPreset: 'weekAndDayLetter',
       project: { tasks, dependencies },
+      features: { criticalPaths: true, baselines: true },
       columns: [
         { type: 'name', field: 'name', width: 180 },
         { text: 'Owner', field: 'owner', width: 100 },

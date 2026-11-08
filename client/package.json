@@ -9,7 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@bryntum/gantt-community": "8.0.0",
+    "@bryntum/gantt-enterprise": "^8.0.0",
     "ag-charts-enterprise": "^14.3.0",
     "ag-grid-community": "36.3.0",
     "ag-grid-enterprise": "^36.3.0",
