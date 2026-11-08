@@ -10,6 +10,7 @@ dotenv.config({ path: path.resolve(here, '../../.env') });
 export const PORT = Number(process.env.PORT ?? 3001);
 export const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
 export const CHANNEL3_API_KEY = process.env.CHANNEL3_API_KEY ?? '';
+export const DATABASE_URL = process.env.DATABASE_URL ?? '';
 
 export const NEBIUS_API_KEY = process.env.NEBIUS_API_KEY ?? '';
 export const NEBIUS_BASE_URL = process.env.NEBIUS_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/';

@@ -6,6 +6,17 @@ Licence: [MIT](LICENSE)
 
 ## Run locally
 
+1. Start PostgreSQL and create a database and role (use your own password):
+
+```bash
+psql -h localhost -U postgres -c "CREATE ROLE droplab LOGIN PASSWORD 'your-password';"
+psql -h localhost -U postgres -c "CREATE DATABASE droplab OWNER droplab;"
+```
+
+2. Add `DATABASE_URL=postgres://droplab:your-password@localhost:5432/droplab` to the root `.env`. The schema is created on the first server start.
+
+3. Install and run:
+
 ```bash
 npm run install:all
 npm run dev
@@ -54,11 +65,10 @@ Regenerate it with `cd server && npx tsx scripts/paypal-orders-trace.ts`.
 - **Payout recipients are sandbox accounts.** The sandbox merchant (seller) account cannot receive a payout, because PayPal returns `SELF_PAY_NOT_ALLOWED`. The three shares go to three separate accounts, set by `PAYOUT_CREATOR_EMAIL`, `PAYOUT_SUPPLIER_EMAIL`, and `PAYOUT_PLATFORM_EMAIL`.
 - **No margin chart.** The spec asks for margin by product, but no supplier cost data exists, so the chart is not built. Charts were not added.
 - **Price-changed 409 path** is implemented and not exercised in a browser test.
-- **Storage is in memory.** Postgres is not implemented. The sandbox has no database here, and the code is not written for it yet.
+- **Full browser run on Postgres is not repeated.** Storage moved from memory to Postgres. The plan, Gantt, order creation, capture guard, payout guard and payout lookup were re-tested on Postgres. The buyer approval, capture and 3-way payout ran on the in-memory build before the move. Re-run them once in the browser.
 
 ## Not done
 
 - **Render deploy** (static site, web service, Postgres, daily price cron). Needs your Render account.
-- **Postgres storage.** Needs a `DATABASE_URL`.
 - **GitHub repository.** Needs your GitHub account.
 - **Devpost and YouTube video** (under 3 minutes, following the spec's shot list).

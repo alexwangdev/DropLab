@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'node:crypto';
 import { CLIENT_ORIGIN, PORT } from './config.js';
+import { migrate } from './db.js';
 import { recheckProduct, searchProducts } from './channel3.js';
 import { captureOrder, createOrder, createPayout, getPayout, PayPalError } from './paypal.js';
 import { seedProducts } from './seed.js';
@@ -12,12 +13,18 @@ const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
 app.use(express.json());
 
+// Wrap async handlers so a rejected promise reaches the error handler instead of hanging.
+type Handler = (req: express.Request, res: express.Response) => Promise<unknown>;
+const route = (fn: Handler): express.RequestHandler => (req, res, next) => {
+  fn(req, res).catch(next);
+};
+
 app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
 // POST /api/drops { title, city, budget_cents } -> drop
-app.post('/api/drops', (req, res) => {
+app.post('/api/drops', route(async (req, res) => {
   const { title, city, budget_cents } = req.body ?? {};
   if (typeof title !== 'string' || !title.trim() || typeof city !== 'string' || !city.trim()) {
     return res.status(400).json({ error: 'title and city are required' });
@@ -25,30 +32,30 @@ app.post('/api/drops', (req, res) => {
   if (!Number.isInteger(budget_cents) || budget_cents < 0) {
     return res.status(400).json({ error: 'budget_cents must be a non-negative integer' });
   }
-  res.status(201).json(store.createDrop({ title: title.trim(), city: city.trim(), budget_cents }));
-});
+  res.status(201).json(await store.createDrop({ title: title.trim(), city: city.trim(), budget_cents }));
+}));
 
 // GET /api/drops/:id -> drop + products + milestones
-app.get('/api/drops/:id', (req, res) => {
-  const drop = store.getDrop(req.params.id);
+app.get('/api/drops/:id', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
   if (!drop) return res.status(404).json({ error: 'drop not found' });
   res.json({
     drop,
-    products: store.getProducts(drop.id),
-    milestones: store.getMilestones(drop.id),
+    products: await store.getProducts(drop.id),
+    milestones: await store.getMilestones(drop.id),
   });
-});
+}));
 
 // POST /api/drops/:id/plan { prompt?, query? } -> plan + products.
 // Order: LLM agent (Nebius + Channel3 tool) -> direct Channel3 search -> seeded demo data.
 // Every failure is logged with its exact message before the fallback.
-app.post("/api/drops/:id/plan", async (req, res) => {
-  const drop = store.getDrop(req.params.id);
-  if (!drop) return res.status(404).json({ error: "drop not found" });
-  const query = typeof req.body?.query === "string" && req.body.query.trim() ? req.body.query.trim() : "beach pop-up merch";
-  const prompt = typeof req.body?.prompt === "string" && req.body.prompt.trim() ? req.body.prompt.trim() : query;
+app.post('/api/drops/:id/plan', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const query = typeof req.body?.query === 'string' && req.body.query.trim() ? req.body.query.trim() : 'beach pop-up merch';
+  const prompt = typeof req.body?.prompt === 'string' && req.body.prompt.trim() ? req.body.prompt.trim() : query;
 
-  let source: "llm" | "channel3" | "seed" = "llm";
+  let source: 'llm' | 'channel3' | 'seed' = 'llm';
   let error: string | null = null;
   let plan_text: string | null = null;
   let trace: string[] = [];
@@ -57,39 +64,39 @@ app.post("/api/drops/:id/plan", async (req, res) => {
     const r = await planWithLLM(prompt);
     plan_text = r.plan_text;
     trace = r.trace;
-    if (r.products.length === 0) throw new Error("LLM planner did not return any products");
-    list = r.products.map((p) => ({ ...p, source: "channel3" as const }));
+    if (r.products.length === 0) throw new Error('LLM planner did not return any products');
+    list = r.products.map((p) => ({ ...p, source: 'channel3' as const }));
   } catch (e) {
     error = (e as Error).message;
-    console.error("[plan] LLM planner failed, falling back to Channel3 search:", error);
-    source = "channel3";
+    console.error('[plan] LLM planner failed, falling back to Channel3 search:', error);
+    source = 'channel3';
     try {
       const found = await searchProducts(query, 4);
-      if (found.length === 0) throw new Error("Channel3 returned no in-stock products with a USD price");
-      list = found.map((p) => ({ ...p, source: "channel3" as const }));
+      if (found.length === 0) throw new Error('Channel3 returned no in-stock products with a USD price');
+      list = found.map((p) => ({ ...p, source: 'channel3' as const }));
     } catch (e2) {
       error = `${error} | ${(e2 as Error).message}`;
-      console.error("[plan] Channel3 fallback failed, using seeded demo products:", (e2 as Error).message);
-      source = "seed";
+      console.error('[plan] Channel3 fallback failed, using seeded demo products:', (e2 as Error).message);
+      source = 'seed';
       list = seedProducts();
     }
   }
-  const stored = store.setProducts(drop.id, list);
-  drop.plan_text = plan_text;
-  res.json({ source, error, query, plan_text, trace, products: stored, milestones: store.getMilestones(drop.id) });
-});
+  const stored = await store.setProducts(drop.id, list);
+  await store.setPlanText(drop.id, plan_text);
+  res.json({ source, error, query, plan_text, trace, products: stored, milestones: await store.getMilestones(drop.id) });
+}));
 
 // POST /api/paypal/orders { drop_id, items: [{ product_id, qty }] } -> { paypal_order_id, approval_url }
-// Prices are read from the server store, never from the client.
-app.post('/api/paypal/orders', async (req, res) => {
+// Prices are read from the database, never from the client.
+app.post('/api/paypal/orders', route(async (req, res) => {
   const { drop_id, items } = req.body ?? {};
-  const drop = typeof drop_id === 'string' ? store.getDrop(drop_id) : undefined;
+  const drop = typeof drop_id === 'string' ? await store.getDrop(drop_id) : undefined;
   if (!drop) return res.status(400).json({ error: 'valid drop_id is required' });
   if (!Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'items must be a non-empty array' });
   }
 
-  const products = store.getProducts(drop.id);
+  const products = await store.getProducts(drop.id);
 
   // Re-check live Channel3 prices before creating the order (spec §4). Seed items are skipped.
   const changes: { product_id: string; title: string; old_cents: number; new_cents: number | null }[] = [];
@@ -100,10 +107,10 @@ app.post('/api/paypal/orders', async (req, res) => {
       const live = await recheckProduct(p.channel3_id);
       if (!live) {
         changes.push({ product_id: p.id, title: p.title, old_cents: p.price_cents, new_cents: null });
-        p.availability = 'OutOfStock';
+        await store.updateProduct(p.id, { availability: 'OutOfStock' });
       } else if (live.price_cents !== p.price_cents) {
         changes.push({ product_id: p.id, title: p.title, old_cents: p.price_cents, new_cents: live.price_cents });
-        p.price_cents = live.price_cents; // store the live price so the next attempt uses it
+        await store.updateProduct(p.id, { price_cents: live.price_cents }); // next attempt uses the live price
       }
     } catch (e) {
       console.error('[checkout] Channel3 re-check failed:', (e as Error).message);
@@ -114,10 +121,12 @@ app.post('/api/paypal/orders', async (req, res) => {
     return res.status(409).json({ error: 'Live price or availability changed. Review and confirm again.', changes });
   }
 
+  // Reload after any updates so totals use the stored (live) prices.
+  const current = await store.getProducts(drop.id);
   let total = 0;
   const clean: { product_id: string; qty: number }[] = [];
   for (const it of items) {
-    const product = products.find((p) => p.id === it?.product_id);
+    const product = current.find((p) => p.id === it?.product_id);
     const qty = it?.qty ?? 1;
     if (!product) return res.status(400).json({ error: `unknown product_id ${it?.product_id}` });
     if (!Number.isInteger(qty) || qty < 1 || qty > 10) {
@@ -136,7 +145,7 @@ app.post('/api/paypal/orders', async (req, res) => {
       returnUrl: `${CLIENT_ORIGIN}/drop/${drop.id}/checkout?paypal=return`,
       cancelUrl: `${CLIENT_ORIGIN}/drop/${drop.id}/checkout?paypal=cancel`,
     });
-    store.saveOrder({
+    await store.saveOrder({
       paypal_order_id: order.paypal_order_id,
       drop_id: drop.id,
       items: clean,
@@ -156,27 +165,26 @@ app.post('/api/paypal/orders', async (req, res) => {
   } catch (e) {
     handleError(res, e, 'create order');
   }
-});
+}));
 
 // POST /api/paypal/orders/:id/capture -> { paypal_capture_id, status }
-app.post('/api/paypal/orders/:id/capture', async (req, res) => {
-  const order = store.getOrder(req.params.id);
+app.post('/api/paypal/orders/:id/capture', route(async (req, res) => {
+  const order = await store.getOrder(req.params.id);
   if (!order) return res.status(404).json({ error: 'order not found' });
   if (order.paypal_capture_id) {
     return res.json({ paypal_order_id: order.paypal_order_id, paypal_capture_id: order.paypal_capture_id, status: order.status, total_cents: order.total_cents });
   }
-  order.capture_request_id ??= randomUUID();
+  const requestId = order.capture_request_id ?? randomUUID();
+  await store.updateOrder(order.paypal_order_id, { capture_request_id: requestId });
   try {
-    const result = await captureOrder(order.paypal_order_id, order.capture_request_id);
-    order.status = result.status;
-    order.paypal_capture_id = result.paypal_capture_id;
-    const milestone = store.getMilestones(order.drop_id).find((m) => m.title === 'Order');
-    if (result.status === 'COMPLETED' && milestone) milestone.paypal_status = 'paid';
+    const result = await captureOrder(order.paypal_order_id, requestId);
+    await store.updateOrder(order.paypal_order_id, { status: result.status, paypal_capture_id: result.paypal_capture_id });
+    if (result.status === 'COMPLETED') await store.markMilestonePaid(order.drop_id, 'Order');
     res.json({ paypal_order_id: order.paypal_order_id, paypal_capture_id: result.paypal_capture_id, status: result.status, total_cents: order.total_cents });
   } catch (e) {
     handleError(res, e, 'capture order');
   }
-});
+}));
 
 // Split rule from the spec: 70% creator, 20% supplier, 10% platform fee. Integer cents only.
 // Recipient emails are sandbox test accounts and come only from env (never hard-coded).
@@ -188,8 +196,8 @@ const SPLIT = [
 
 // POST /api/paypal/payouts { order_id } -> { paypal_batch_id, items[] }
 // Only for a COMPLETED capture. Idempotent per order.
-app.post('/api/paypal/payouts', async (req, res) => {
-  const order = store.getOrder(req.body?.order_id ?? '');
+app.post('/api/paypal/payouts', route(async (req, res) => {
+  const order = await store.getOrder(req.body?.order_id ?? '');
   if (!order) return res.status(404).json({ error: 'order not found' });
   if (order.status !== 'COMPLETED' || !order.paypal_capture_id) {
     return res.status(409).json({ error: 'order must be captured (COMPLETED) before payouts' });
@@ -197,7 +205,7 @@ app.post('/api/paypal/payouts', async (req, res) => {
   if (SPLIT.some((s) => !s.email)) {
     return res.status(500).json({ error: 'PAYOUT_CREATOR_EMAIL, PAYOUT_SUPPLIER_EMAIL and PAYOUT_PLATFORM_EMAIL must be set in .env' });
   }
-  const existing = store.getPayoutForOrder(order.paypal_order_id);
+  const existing = await store.getPayoutForOrder(order.paypal_order_id);
   if (existing) return res.json({ paypal_batch_id: existing.batch_id, items: existing.items, reused: true });
 
   const amounts = SPLIT.map((s) => Math.floor((order.total_cents * s.pct) / 100));
@@ -223,49 +231,47 @@ app.post('/api/paypal/payouts', async (req, res) => {
       record.request_id,
     );
     record.batch_id = result.batch_header.payout_batch_id;
-    store.savePayout(record);
+    await store.savePayout(record);
     res.status(201).json({ paypal_batch_id: record.batch_id, batch_status: result.batch_header.batch_status, items: record.items });
   } catch (e) {
     handleError(res, e, 'create payout');
   }
-});
+}));
 
 // GET /api/paypal/payouts/:batch_id -> status per recipient
-app.get('/api/paypal/payouts/:batch_id', async (req, res) => {
-  // Works even after a server restart: the batch is looked up on PayPal by its ID.
-  const record = store.getPayoutRecord(req.params.batch_id);
+app.get('/api/paypal/payouts/:batch_id', route(async (req, res) => {
+  const record = await store.getPayoutRecord(req.params.batch_id);
   try {
     const result = await getPayout(req.params.batch_id);
+    // PayPal reports per-item status plus an errors object when an item fails; pass both through.
+    const byId = new Map<string, { status: string; error: unknown; receiver?: string; amount?: unknown }>(
+      (result.items ?? []).map((i: any) => [
+        i.payout_item?.sender_item_id,
+        { status: i.transaction_status, error: i.errors ?? null, receiver: i.payout_item?.receiver, amount: i.payout_item?.amount },
+      ]),
+    );
     if (!record) {
+      // Batch created outside this DB (or before it was set up): report what PayPal says.
       return res.json({
         paypal_batch_id: req.params.batch_id,
         batch_status: result.batch_header?.batch_status ?? null,
-        items: (result.items ?? []).map((i: any) => ({
-          sender_item_id: i.payout_item?.sender_item_id,
-          recipient_email: i.payout_item?.receiver,
-          amount: i.payout_item?.amount,
-          status: i.transaction_status,
-          error: i.errors ?? null,
-        })),
+        items: [...byId.entries()].map(([sender_item_id, v]) => ({ sender_item_id, recipient_email: v.receiver, amount: v.amount, status: v.status, error: v.error })),
         local_record: false,
       });
     }
-    // PayPal reports per-item status plus an errors object when an item fails; pass both through.
-    const statusById = new Map<string, { status: string; error: unknown }>(
-      (result.items ?? []).map((i: any) => [i.payout_item?.sender_item_id, { status: i.transaction_status, error: i.errors ?? null }]),
-    );
     res.json({
       paypal_batch_id: record.batch_id,
       batch_status: result.batch_header?.batch_status ?? null,
       items: record.items.map((i) => {
-        const s = statusById.get(i.sender_item_id);
+        const s = byId.get(i.sender_item_id);
         return { ...i, status: s?.status ?? 'UNKNOWN', error: s?.error ?? null };
       }),
+      local_record: true,
     });
   } catch (e) {
     handleError(res, e, 'get payout');
   }
-});
+}));
 
 function handleError(res: express.Response, e: unknown, action: string) {
   if (e instanceof PayPalError) {
@@ -276,6 +282,19 @@ function handleError(res: express.Response, e: unknown, action: string) {
   return res.status(500).json({ error: `${action} failed: ${(e as Error).message}` });
 }
 
-app.listen(PORT, () => {
-  console.log(`DropLab server on http://localhost:${PORT}`);
+// Express 4 does not catch async errors by itself; this turns them into a JSON 500.
+app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[server] unhandled error:', (err as Error).message);
+  res.status(500).json({ error: (err as Error).message });
 });
+
+migrate()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`DropLab server on http://localhost:${PORT} (Postgres ready)`);
+    });
+  })
+  .catch((e) => {
+    console.error('[startup] database migration failed:', (e as Error).message);
+    process.exit(1);
+  });
