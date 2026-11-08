@@ -1,0 +1,25 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+// Look for server/.env first, then the repo-root .env. Existing env vars win.
+dotenv.config({ path: path.resolve(here, '../.env') });
+dotenv.config({ path: path.resolve(here, '../../.env') });
+
+export const PORT = Number(process.env.PORT ?? 3001);
+export const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
+export const CHANNEL3_API_KEY = process.env.CHANNEL3_API_KEY ?? '';
+
+export const NEBIUS_API_KEY = process.env.NEBIUS_API_KEY ?? '';
+export const NEBIUS_BASE_URL = process.env.NEBIUS_BASE_URL ?? 'https://api.tokenfactory.nebius.com/v1/';
+export const NEBIUS_MODEL = process.env.NEBIUS_MODEL ?? 'nvidia/Nemotron-3_5-Lightning';
+
+export const PAYPAL_CLIENT_ID = process.env.PAYPAL_CLIENT_ID ?? '';
+export const PAYPAL_CLIENT_SECRET = process.env.PAYPAL_CLIENT_SECRET ?? '';
+
+// Hard rule from the spec: sandbox only. Refuse to start against live PayPal.
+if ((process.env.PAYPAL_ENV ?? 'sandbox') !== 'sandbox') {
+  throw new Error('PAYPAL_ENV must be "sandbox" for DropLab. Live PayPal is not allowed.');
+}
+export const PAYPAL_BASE_URL = 'https://api-m.sandbox.paypal.com';
