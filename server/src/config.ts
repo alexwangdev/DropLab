@@ -24,3 +24,8 @@ if ((process.env.PAYPAL_ENV ?? 'sandbox') !== 'sandbox') {
   throw new Error('PAYPAL_ENV must be "sandbox" for DropLab. Live PayPal is not allowed.');
 }
 export const PAYPAL_BASE_URL = 'https://api-m.sandbox.paypal.com';
+
+// Trial licence keys for the browser (AG Grid / AG Charts and Bryntum). They are public keys,
+// served to the client at startup from the server's environment, never from client source.
+export const AG_GRID_LICENSE_KEY = process.env.AG_GRID_LICENSE_KEY ?? '';
+export const BRYNTUM_LICENSE_KEY = process.env.BRYNTUM_LICENSE_KEY ?? '';

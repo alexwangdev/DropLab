@@ -25,6 +25,8 @@ npm run dev
 - Client: http://localhost:5173/create
 - Server: http://localhost:3001/api/health
 
+Trial licence keys for the browser go in the same root `.env` as `AG_GRID_LICENSE_KEY` and `BRYNTUM_LICENSE_KEY`. The server returns them from `GET /api/client-config`, and the client sets them before the grids and the Gantt load. They are not in the client source.
+
 Checks: `npm run build`, `npm test` (23 tests), `npm run verify` (writes `bench/results.json`).
 
 Keys go in the root `.env` (or `server/.env`), never in `client/`, never with a `VITE_` prefix. Live PayPal is refused at startup.
