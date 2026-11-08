@@ -22,7 +22,7 @@ const APIMATIC_DIR = path.join(here, 'apimatic');
 const CACHE = path.join(APIMATIC_DIR, '.cache');
 const EXCERPTS = path.join(APIMATIC_DIR, 'excerpts');
 const RAW = 'https://raw.githubusercontent.com/paypal/paypal-rest-api-specifications/main/openapi/';
-const SPECS = { orders: 'checkout_orders_v2.json', payouts: 'payments_payouts_batch_v1.json' } as const;
+const SPECS = { orders: 'checkout_orders_v2.json', payouts: 'payments_payouts_batch_v1.json', payments: 'payments_payment_v2.json', webhooks: 'notifications_webhooks_v1.json' } as const;
 
 type Spec = { paths: Record<string, Record<string, any>>; components: { schemas: Record<string, any> } };
 
@@ -197,6 +197,62 @@ const ops: Op[] = [
       return [...new Set(probs)];
     },
   },
+  {
+    id: 'payments-refund',
+    title: '(d) Payments v2 refund',
+    spec: 'payments',
+    path: '/v2/payments/captures/{capture_id}/refund',
+    method: 'post',
+    goal: { capture_id: 'EXAMPLE-CAPTURE-ID', amount: { value: '10.00', currency_code: 'USD' }, note: 'refund a single item from a completed drop' },
+    tool: {
+      name: 'refund_capture_request',
+      parameters: obj(
+        {
+          capture_id: str('the {capture_id} path parameter'),
+          body: obj({ amount: obj({ value: str('decimal string, 2 places'), currency_code: str('ISO 4217') }, ['value', 'currency_code']), note_to_payer: str('optional note') }, ['amount']),
+        },
+        ['capture_id', 'body'],
+      ),
+    },
+    check: (a, g) => {
+      const probs: string[] = [];
+      if (a?.capture_id !== g.capture_id) probs.push('capture_id must be the path id');
+      if (a?.body?.amount?.currency_code !== g.amount.currency_code) probs.push('amount.currency_code must be USD');
+      if (a?.body?.amount?.value !== g.amount.value) probs.push('amount.value must be "' + g.amount.value + '"');
+      return probs;
+    },
+  },
+  {
+    id: 'webhooks-verify',
+    title: '(e) Webhook signature verification (trace only)',
+    spec: 'webhooks',
+    path: '/v1/notifications/verify-webhook-signature',
+    method: 'post',
+    goal: { webhook_id: 'EXAMPLE-WEBHOOK-ID', event_type: 'PAYMENT.CAPTURE.COMPLETED' },
+    tool: {
+      name: 'verify_webhook_signature_request',
+      parameters: obj(
+        {
+          auth_algo: str('e.g. SHA256withRSA'),
+          cert_url: str('https URL of the certificate'),
+          transmission_id: str('from the webhook headers'),
+          transmission_sig: str('from the webhook headers'),
+          transmission_time: str('from the webhook headers'),
+          webhook_id: str('the webhook id registered with PayPal'),
+          webhook_event: obj({ event_type: str('event type') }, ['event_type']),
+        },
+        ['auth_algo', 'cert_url', 'transmission_id', 'transmission_sig', 'transmission_time', 'webhook_id', 'webhook_event'],
+      ),
+    },
+    check: (a, g) => {
+      const probs: string[] = [];
+      if (a?.webhook_id !== g.webhook_id) probs.push('webhook_id must be the registered id');
+      if (!/^https:\/\//.test(a?.cert_url ?? '')) probs.push('cert_url must be an https URL');
+      if (a?.webhook_event?.event_type !== g.event_type) probs.push('webhook_event.event_type must be "' + g.event_type + '"');
+      for (const k of ['transmission_id', 'transmission_sig', 'transmission_time']) if (!a?.[k]) probs.push(k + ' required');
+      return probs;
+    },
+  },
 ];
 
 async function traceOne(client: OpenAI, op: Op, schemas: Record<string, unknown>, bodySchema: string) {
@@ -249,6 +305,8 @@ async function main() {
   const specs: Record<string, Spec> = {
     orders: await loadSpec(SPECS.orders),
     payouts: await loadSpec(SPECS.payouts),
+    payments: await loadSpec(SPECS.payments),
+    webhooks: await loadSpec(SPECS.webhooks),
   };
   fs.mkdirSync(EXCERPTS, { recursive: true });
 

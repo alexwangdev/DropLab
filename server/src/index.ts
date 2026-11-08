@@ -4,7 +4,8 @@ import { randomUUID } from 'node:crypto';
 import { AG_GRID_LICENSE_KEY, BRYNTUM_LICENSE_KEY, CLIENT_ORIGIN, PORT } from './config.js';
 import { migrate, pool } from './db.js';
 import { recheckProduct, searchProducts } from './channel3.js';
-import { captureOrder, createOrder, createPayout, getPayout, PayPalError } from './paypal.js';
+import { searchWithFallback } from './channel3-mcp.js';
+import { authorizeOrder, captureAuthorization, captureOrder, createOrder, createPayout, getPayout, PayPalError, refundCapture, voidAuthorization } from './paypal.js';
 import { seedProducts } from './seed.js';
 import { planWithLLM } from './planner.js';
 import { SEARCH_LIMIT } from './search-limit.js';
@@ -196,20 +197,30 @@ app.post('/api/drops/:id/plan', route(async (req, res) => {
   let plan_text: string | null = null;
   let trace: string[] = [];
   let list: store.NewProduct[] = [];
+  let searches: { kind: string; query: string; count: number; source: string; mcp_error: string | null }[] = [];
   try {
     const r = await planWithLLM(prompt);
     plan_text = r.plan_text;
     trace = r.trace;
     if (r.products.length === 0) throw new Error('LLM planner did not return any products');
-    list = r.products.map((p) => ({ ...p, source: 'channel3' as const }));
+    // Every search in the plan, deduplicated by Channel3 id; each product keeps the query that found it.
+    const byId = new Map<string, store.NewProduct>();
+    for (const set of r.searches) {
+      for (const p of set.products) {
+        if (!byId.has(p.channel3_id)) byId.set(p.channel3_id, { ...p, source: 'channel3' as const, search_query: set.query });
+      }
+    }
+    list = [...byId.values()];
+    searches = r.searches.map((x) => ({ kind: x.kind, query: x.query, count: x.products.length, source: x.source, mcp_error: x.mcp_error }));
   } catch (e) {
     error = (e as Error).message;
     console.error('[plan] LLM planner failed, falling back to Channel3 search:', error);
     source = 'channel3';
     try {
-      const found = await searchProducts(query, SEARCH_LIMIT);
-      if (found.length === 0) throw new Error('Channel3 returned no in-stock products with a USD price');
-      list = found.map((p) => ({ ...p, source: 'channel3' as const }));
+      const out = await searchWithFallback(query, SEARCH_LIMIT);
+      if (out.products.length === 0) throw new Error('Channel3 returned no in-stock products with a USD price');
+      list = out.products.map((p) => ({ ...p, source: 'channel3' as const, search_query: query }));
+      searches = [{ kind: 'products', query, count: out.products.length, source: out.source, mcp_error: out.mcp_error }];
     } catch (e2) {
       error = `${error} | ${(e2 as Error).message}`;
       console.error('[plan] Channel3 fallback failed, using seeded demo products:', (e2 as Error).message);
@@ -219,7 +230,7 @@ app.post('/api/drops/:id/plan', route(async (req, res) => {
   }
   const stored = await store.setProducts(drop.id, list);
   await store.setPlanText(drop.id, plan_text);
-  res.json({ source, error, query, plan_text, trace, products: stored, milestones: await store.getMilestones(drop.id) });
+  res.json({ source, error, query, plan_text, trace, searches, products: stored, milestones: await store.getMilestones(drop.id) });
 }));
 
 // ---------- F1 mandate ----------
@@ -422,6 +433,34 @@ app.post('/api/paypal/orders/:id/capture', route(async (req, res) => {
   }
 }));
 
+// POST /api/paypal/orders/:id/refund -> refunds the full captured amount of a COMPLETED order.
+// Refunds only a completed capture, once per order (checked in the ledger). Amount is server math.
+app.post('/api/paypal/orders/:id/refund', route(async (req, res) => {
+  const order = await store.getOrder(req.params.id);
+  if (!order) return res.status(404).json({ error: 'order not found' });
+  if (order.status !== 'COMPLETED' || !order.paypal_capture_id) {
+    return res.status(409).json({ error: 'order must be captured (COMPLETED) before a refund' });
+  }
+  const done = await pool.query("SELECT paypal_ref FROM ledger_entries WHERE drop_id = $1 AND kind = 'refund' AND detail->>'paypal_order_id' = $2", [order.drop_id, order.paypal_order_id]);
+  if (done.rows[0]) return res.status(409).json({ error: 'already refunded', refund_id: done.rows[0].paypal_ref });
+  try {
+    const r = await refundCapture(order.paypal_capture_id, order.total_cents, order.currency, randomUUID());
+    await gov.tx(async (c) => {
+      await gov.appendLedger(c, order.drop_id, {
+        kind: 'refund',
+        actor: 'paypal',
+        amount_cents: order.total_cents,
+        paypal_ref: r.id,
+        verdict: r.status,
+        detail: { paypal_order_id: order.paypal_order_id, capture_id: order.paypal_capture_id },
+      });
+    });
+    res.status(201).json({ refund_id: r.id, status: r.status, amount_cents: order.total_cents, capture_id: order.paypal_capture_id });
+  } catch (e) {
+    handleError(res, e, 'refund capture');
+  }
+}));
+
 /** Recipients come only from env. Never from the client, never from the LLM. */
 function payoutRecipients() {
   return [
@@ -524,62 +563,135 @@ app.get('/api/paypal/payouts/:batch_id', route(async (req, res) => {
   }
 }));
 
-// ---------- F3 holds (labelled simulation; no PayPal authorization IDs) ----------
+// ---------- F3 holds (real PayPal authorizations; each hold needs its own buyer approval) ----------
+
+const HOLD_REAL_LABEL = 'PayPal authorization (supplier hold)';
+const HOLD_SIMULATED_LABEL = 'Simulated hold: PayPal authorize unavailable for this request';
+
+/**
+ * Requests a real hold: an AUTHORIZE order for the supplier share. The hold is stored as pending with
+ * the PayPal order id, and the buyer must approve it. If PayPal refuses, the exact error is logged and
+ * the hold is stored as a labelled simulated hold. No authorization id is ever invented.
+ */
+async function requestHold(drop: store.Drop, milestone: string, supersedesId: string | null) {
+  const amount = Math.floor((drop.budget_cents * SUPPLIER_SHARE_PCT) / 100);
+  const holdId = randomUUID();
+  try {
+    const order = await createOrder({
+      amountCents: amount,
+      currency: 'USD',
+      referenceId: holdId,
+      description: `DropLab supplier hold: ${milestone}`,
+      returnUrl: `${CLIENT_ORIGIN}/drop/${drop.id}?hold=${holdId}&paypal=return`,
+      cancelUrl: `${CLIENT_ORIGIN}/drop/${drop.id}?hold=${holdId}&paypal=cancel`,
+      intent: 'AUTHORIZE',
+    });
+    const hold = await gov.tx(async (c) => {
+      const h = await gov.insertHold(c, drop.id, milestone, amount, HOLD_REAL_LABEL, { id: holdId, status: 'pending', paypalOrderId: order.paypal_order_id, approvalUrl: order.approval_url });
+      await gov.appendLedger(c, drop.id, {
+        kind: 'hold_requested',
+        actor: 'paypal',
+        amount_cents: amount,
+        paypal_ref: order.paypal_order_id,
+        verdict: order.status,
+        detail: { hold_id: holdId, milestone, supersedes: supersedesId },
+      });
+      return h;
+    });
+    return { hold, approval_url: order.approval_url };
+  } catch (e) {
+    const msg = errorBody(e, 'create hold order').body;
+    console.error('[holds] AUTHORIZE order failed, storing a labelled simulated hold:', JSON.stringify(msg));
+    const hold = await gov.tx(async (c) => {
+      const h = await gov.insertHold(c, drop.id, milestone, amount, `${HOLD_SIMULATED_LABEL} (${(e as Error).message.slice(0, 120)})`, { id: holdId, status: 'held' });
+      await gov.appendLedger(c, drop.id, { kind: 'hold_placed', actor: 'server', amount_cents: amount, verdict: 'Simulated', detail: { hold_id: holdId, milestone, simulated: true, error: (e as Error).message } });
+      return h;
+    });
+    return { hold, approval_url: null };
+  }
+}
+
+/** Voids the live hold for a milestone (PayPal void if a real authorization exists), then requests a new one. */
+async function rebookMilestoneHold(drop: store.Drop, milestone: string, reason: string) {
+  const old = await gov.activeHold(pool, drop.id, milestone);
+  if (old) {
+    if (old.paypal_authorization_id) await voidAuthorization(old.paypal_authorization_id, randomUUID());
+    await gov.tx(async (c) => {
+      await gov.closeHold(c, old.id, 'voided', null, old.amount_cents);
+      await gov.appendLedger(c, drop.id, { kind: 'hold_voided', actor: 'server', amount_cents: old.amount_cents, verdict: 'Voided', detail: { hold_id: old.id, milestone, reason, paypal_authorization_id: old.paypal_authorization_id } });
+    });
+  }
+  const next = await requestHold(drop, milestone, old?.id ?? null);
+  return { voided: old?.id ?? null, hold: next.hold, approval_url: next.approval_url };
+}
 
 // GET /api/drops/:id/holds
 app.get('/api/drops/:id/holds', route(async (req, res) => {
   res.json(await gov.listHolds(req.params.id));
 }));
 
-// POST /api/drops/:id/holds { milestone_title } -> one active hold per milestone
+// POST /api/drops/:id/holds { milestone_title } -> pending real hold + approval_url for the buyer
 app.post('/api/drops/:id/holds', route(async (req, res) => {
   const drop = await store.getDrop(req.params.id);
   if (!drop) return res.status(404).json({ error: 'drop not found' });
   const milestone = String(req.body?.milestone_title ?? '');
   if (!milestone) return res.status(400).json({ error: 'milestone_title is required' });
   if (await gov.activeHold(pool, drop.id, milestone)) return res.status(409).json({ error: 'a hold is already active for this milestone; use rebook' });
-  const amount = Math.floor((drop.budget_cents * SUPPLIER_SHARE_PCT) / 100);
-  const hold = await gov.tx(async (c) => {
-    const h = await gov.insertHold(c, drop.id, milestone, amount, HOLD_LABEL);
-    await gov.appendLedger(c, drop.id, { kind: 'hold_placed', actor: 'server', amount_cents: amount, verdict: 'Held', detail: { hold_id: h.id, milestone, label: HOLD_LABEL } });
-    return h;
-  });
-  res.status(201).json(hold);
+  const out = await requestHold(drop, milestone, null);
+  res.status(201).json(out);
 }));
 
-// POST /api/drops/:id/holds/rebook { milestone_title } -> voids the active hold and books a new one
+// POST /api/drops/:id/holds/rebook { milestone_title } -> voids the live hold, requests a new one
 app.post('/api/drops/:id/holds/rebook', route(async (req, res) => {
   const drop = await store.getDrop(req.params.id);
   if (!drop) return res.status(404).json({ error: 'drop not found' });
   const milestone = String(req.body?.milestone_title ?? '');
   if (!milestone) return res.status(400).json({ error: 'milestone_title is required' });
-  const amount = Math.floor((drop.budget_cents * SUPPLIER_SHARE_PCT) / 100);
-  const out = await gov.tx(async (c) => {
-    const old = await gov.activeHold(c, drop.id, milestone);
-    if (old) {
-      await gov.closeHold(c, old.id, 'voided', null, old.amount_cents);
-      await gov.appendLedger(c, drop.id, { kind: 'hold_voided', actor: 'server', amount_cents: old.amount_cents, verdict: 'Voided', detail: { hold_id: old.id, milestone, reason: 'milestone_moved' } });
-    }
-    const fresh = await gov.insertHold(c, drop.id, milestone, amount, HOLD_LABEL);
-    await gov.appendLedger(c, drop.id, { kind: 'hold_placed', actor: 'server', amount_cents: amount, verdict: 'Held', detail: { hold_id: fresh.id, milestone, rebooked_from: old?.id ?? null, label: HOLD_LABEL } });
-    return { voided: old?.id ?? null, hold: fresh };
-  });
-  res.json(out);
+  res.json(await rebookMilestoneHold(drop, milestone, 'rebook'));
 }));
 
-// POST /api/drops/:id/holds/:hid/void
+// POST /api/drops/:id/holds/:hid/authorize { order_id } -> after the buyer approved; stores the PayPal authorization id
+app.post('/api/drops/:id/holds/:hid/authorize', route(async (req, res) => {
+  const hold = await gov.getHold(req.params.hid);
+  if (!hold || hold.drop_id !== req.params.id) return res.status(404).json({ error: 'hold not found' });
+  if (hold.status !== 'pending' || !hold.paypal_order_id) return res.status(409).json({ error: `hold is ${hold.status}, not awaiting approval` });
+  if (req.body?.order_id !== hold.paypal_order_id) return res.status(400).json({ error: 'order_id does not match this hold' });
+  try {
+    // The PayPal request id is tied to the hold, so a repeated call cannot authorize twice.
+    const r = await authorizeOrder(hold.paypal_order_id, `authorize-${hold.id}`);
+    const auth = r?.purchase_units?.[0]?.payments?.authorizations?.[0];
+    if (!auth?.id) throw new Error('PayPal authorize returned no authorization id');
+    const written = await gov.tx(async (c) => {
+      const changed = await gov.markHoldAuthorized(c, hold.id, auth.id);
+      if (changed) {
+        await gov.appendLedger(c, hold.drop_id, { kind: 'hold_placed', actor: 'paypal', amount_cents: hold.amount_cents, paypal_ref: auth.id, verdict: 'Held', detail: { hold_id: hold.id, milestone: hold.milestone_title, paypal_order_id: hold.paypal_order_id } });
+      }
+      return changed;
+    });
+    res.json({ status: 'held', paypal_authorization_id: auth.id, ledger_written: written });
+  } catch (e) {
+    handleError(res, e, 'authorize hold');
+  }
+}));
+
+// POST /api/drops/:id/holds/:hid/void -> PayPal void for a real authorization, local void otherwise
 app.post('/api/drops/:id/holds/:hid/void', route(async (req, res) => {
   const hold = await gov.getHold(req.params.hid);
   if (!hold || hold.drop_id !== req.params.id) return res.status(404).json({ error: 'hold not found' });
-  if (hold.status !== 'held') return res.status(409).json({ error: `hold is already ${hold.status}` });
+  if (hold.status !== 'held' && hold.status !== 'pending') return res.status(409).json({ error: `hold is already ${hold.status}` });
+  try {
+    if (hold.paypal_authorization_id) await voidAuthorization(hold.paypal_authorization_id, randomUUID());
+  } catch (e) {
+    return handleError(res, e, 'void authorization');
+  }
   await gov.tx(async (c) => {
     await gov.closeHold(c, hold.id, 'voided', null, hold.amount_cents);
-    await gov.appendLedger(c, hold.drop_id, { kind: 'hold_voided', actor: 'server', amount_cents: hold.amount_cents, verdict: 'Voided', detail: { hold_id: hold.id, milestone: hold.milestone_title } });
+    await gov.appendLedger(c, hold.drop_id, { kind: 'hold_voided', actor: hold.paypal_authorization_id ? 'paypal' : 'server', amount_cents: hold.amount_cents, verdict: 'Voided', detail: { hold_id: hold.id, milestone: hold.milestone_title, paypal_authorization_id: hold.paypal_authorization_id } });
   });
   res.json({ ...hold, status: 'voided', released_cents: hold.amount_cents });
 }));
 
-// POST /api/drops/:id/holds/:hid/capture -> captures the actual supplier share, releases the rest
+// POST /api/drops/:id/holds/:hid/capture -> captures the actual supplier share (PayPal capture for a real authorization), releases the rest
 app.post('/api/drops/:id/holds/:hid/capture', route(async (req, res) => {
   const hold = await gov.getHold(req.params.hid);
   if (!hold || hold.drop_id !== req.params.id) return res.status(404).json({ error: 'hold not found' });
@@ -588,11 +700,46 @@ app.post('/api/drops/:id/holds/:hid/capture', route(async (req, res) => {
   const actual = Math.floor((sales * SUPPLIER_SHARE_PCT) / 100);
   const captured = Math.min(actual, hold.amount_cents);
   const released = hold.amount_cents - captured;
+  let paypalCaptureId: string | null = null;
+  try {
+    if (hold.paypal_authorization_id && captured > 0) {
+      const r = await captureAuthorization(hold.paypal_authorization_id, captured, 'USD', randomUUID());
+      paypalCaptureId = r?.id ?? null;
+    } else if (hold.paypal_authorization_id) {
+      await voidAuthorization(hold.paypal_authorization_id, randomUUID());
+    }
+  } catch (e) {
+    return handleError(res, e, 'capture authorization');
+  }
   await gov.tx(async (c) => {
     await gov.closeHold(c, hold.id, 'captured', captured, released);
-    await gov.appendLedger(c, hold.drop_id, { kind: 'hold_captured', actor: 'server', amount_cents: captured, verdict: 'Captured', detail: { hold_id: hold.id, milestone: hold.milestone_title, held_cents: hold.amount_cents, released_cents: released, sales_cents: sales } });
+    await gov.appendLedger(c, hold.drop_id, { kind: 'hold_captured', actor: hold.paypal_authorization_id ? 'paypal' : 'server', amount_cents: captured, paypal_ref: paypalCaptureId, verdict: 'Captured', detail: { hold_id: hold.id, milestone: hold.milestone_title, held_cents: hold.amount_cents, released_cents: released, sales_cents: sales, paypal_authorization_id: hold.paypal_authorization_id } });
   });
-  res.json({ ...hold, status: 'captured', captured_cents: captured, released_cents: released });
+  res.json({ ...hold, status: 'captured', captured_cents: captured, released_cents: released, paypal_capture_id: paypalCaptureId });
+}));
+
+// POST /api/drops/:id/schedule-changed { milestone_title }
+// A date changed on the Gantt, by drag or by the task editor. Both call this one route. An approved
+// mandate is invalidated (the approval bound the old schedule), and the milestone's live hold is voided
+// and a new one requested (the buyer must approve the new hold). Ledger entries are written for each step.
+app.post('/api/drops/:id/schedule-changed', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const milestone = String(req.body?.milestone_title ?? '');
+  if (!milestone) return res.status(400).json({ error: 'milestone_title is required' });
+  const approval_invalidated = await gov.tx(async (c) => {
+    const m = await gov.getMandate(drop.id, c);
+    const invalidated = !!m && m.status === 'approved';
+    if (invalidated) {
+      await gov.setMandateStatus(c, drop.id, 'invalidated');
+      await gov.appendLedger(c, drop.id, { kind: 'approval_invalidated', actor: 'server', amount_cents: 0, verdict: 'Refused', detail: { reason: 'schedule_changed', milestone, approved_hash: m?.plan_hash ?? null } });
+    }
+    await gov.appendLedger(c, drop.id, { kind: 'schedule_changed', actor: 'organiser', amount_cents: 0, detail: { milestone, approval_invalidated: invalidated } });
+    return invalidated;
+  });
+  const hadHold = !!(await gov.activeHold(pool, drop.id, milestone));
+  const rebooked = hadHold ? await rebookMilestoneHold(drop, milestone, 'schedule_changed') : null;
+  res.json({ approval_invalidated, voided_hold: rebooked?.voided ?? null, rebooked_hold: rebooked?.hold.id ?? null, approval_url: rebooked?.approval_url ?? null });
 }));
 
 // ---------- F4 ledger ----------

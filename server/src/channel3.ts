@@ -34,9 +34,14 @@ export async function searchProducts(query: string, limit = 4): Promise<FoundPro
   if (!res.ok) throw new Error(`Channel3 search failed: HTTP ${res.status} ${text.slice(0, 300)}`);
 
   const json = JSON.parse(text) as { products?: any[] };
+  return mapProducts(json.products ?? [], limit);
+}
+
+/** Maps Channel3 product records (REST or MCP) to FoundProduct. Shared by both paths. */
+export function mapProducts(products: any[], limit: number): FoundProduct[] {
   const out: FoundProduct[] = [];
   const seen = new Set<string>();
-  for (const p of json.products ?? []) {
+  for (const p of products) {
     const offer = (p.offers ?? []).find(
       (o: any) => o?.price && typeof o.price.price === 'number' && o.price.currency === 'USD' && o.availability === 'InStock',
     );
@@ -59,7 +64,6 @@ export async function searchProducts(query: string, limit = 4): Promise<FoundPro
   }
   return out;
 }
-
 /**
  * Pre-checkout re-check (spec §4): GET /v1/products/{id} for the live offer price.
  * Returns null when the product has no in-stock USD offer any more.

@@ -8,6 +8,6 @@
 | **Claude Code** (Opus) | Built the project | Wrote and tested the code, and produced the docs. |
 | **AG Grid Enterprise + AG Charts Enterprise** | Client | Grids, integrated chart, theme. Trial key, evaluation only. |
 | **Bryntum Gantt Community 8.0.0** | Client | Timeline with dependencies, lags, hold labels. |
-| **Channel3** | Server | Product search and price/stock re-check (REST). MCP is documented, not used (`docs/channel3-mcp.md`). |
+| **Channel3** | Server | Product search over MCP (`search_products`, verified tool list), with REST as the fallback. Live price and stock re-check (REST) before any order. See `docs/channel3-mcp.md`. |
 | **PayPal sandbox** | Server | Orders v2 and Payouts v1. Sandbox only. |
 | **Render** | Planned | `render.yaml` only. Not deployed. |

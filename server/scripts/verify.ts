@@ -24,13 +24,14 @@ const result: Record<string, unknown> = {
   sandbox_order_id: null as string | null,
   capture_id: null as string | null,
   payout_batch_id: null as string | null,
+  refund_id: null as string | null,
   ledger_verified: null as boolean | null,
   ledger_entries: null as number | null,
   notes: [] as string[],
 };
 
 // 1. unit tests
-const t = spawnSync(process.execPath, ['--import', 'tsx', '--test', 'test/rules.test.ts', 'test/negotiate.test.ts', 'test/routes.test.ts'], { cwd: path.resolve(here, '..'), encoding: 'utf8' });
+const t = spawnSync(process.execPath, ['--import', 'tsx', '--test', 'test/rules.test.ts', 'test/negotiate.test.ts', 'test/routes.test.ts', 'test/channel3-mcp.test.ts'], { cwd: path.resolve(here, '..'), encoding: 'utf8' });
 const summary = `${t.stdout}\n${t.stderr}`;
 const pass = /ℹ pass (\d+)/.exec(summary);
 const fail = /ℹ fail (\d+)/.exec(summary);
@@ -64,6 +65,9 @@ if (orderId && dropId) {
 } else {
   (result.notes as string[]).push('live sandbox steps skipped: set VERIFY_ORDER_ID (approved in the browser) and VERIFY_DROP_ID');
 }
+
+// Refund from a fresh order, recorded from the live refund response (never invented).
+result.refund_id = process.env.VERIFY_REFUND_ID ?? null;
 
 const outDir = path.join(root, 'bench');
 fs.mkdirSync(outDir, { recursive: true });

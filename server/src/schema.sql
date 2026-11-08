@@ -117,3 +117,18 @@ CREATE TABLE IF NOT EXISTS holds (
   closed_at                timestamptz
 );
 CREATE INDEX IF NOT EXISTS holds_drop_idx ON holds(drop_id);
+
+-- Q-B: which Channel3 search produced each product (labels the result sets on the Drop page).
+ALTER TABLE products ADD COLUMN IF NOT EXISTS search_query text;
+
+-- Q-D: who owns each milestone (creator / supplier / platform). Backfill once for rows created before this column.
+ALTER TABLE milestones ADD COLUMN IF NOT EXISTS resource text;
+UPDATE milestones SET resource = CASE title WHEN 'Order' THEN 'creator' WHEN 'Ship' THEN 'supplier' WHEN 'Setup' THEN 'supplier' WHEN 'Sell' THEN 'creator' WHEN 'Payout' THEN 'platform' END WHERE resource IS NULL;
+
+-- Q-E: real holds. A hold starts pending (PayPal order awaiting buyer approval), becomes held once PayPal's authorization id is stored, then captured or voided.
+ALTER TABLE holds ADD COLUMN IF NOT EXISTS paypal_order_id text;
+ALTER TABLE holds DROP CONSTRAINT IF EXISTS holds_status_check;
+ALTER TABLE holds ADD CONSTRAINT holds_status_check CHECK (status IN ('pending', 'held', 'captured', 'voided'));
+
+-- Q-E: approval link for a pending hold (PayPal order approve URL from the API, never constructed).
+ALTER TABLE holds ADD COLUMN IF NOT EXISTS approval_url text;

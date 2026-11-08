@@ -20,6 +20,7 @@ export interface Product {
   retailer: string;
   availability: string;
   source: 'channel3' | 'seed';
+  search_query: string | null;
 }
 
 export interface Milestone {
@@ -30,6 +31,7 @@ export interface Milestone {
   end_day: number;
   depends_on_id: string | null;
   paypal_status: 'pending' | 'paid';
+  resource: 'creator' | 'supplier' | 'platform' | null;
 }
 
 export class ApiError extends Error {
@@ -109,7 +111,15 @@ export interface HoldRow {
   captured_cents: number | null;
   released_cents: number | null;
   label: string;
-  status: 'held' | 'captured' | 'voided';
+  status: 'pending' | 'held' | 'captured' | 'voided';
+  paypal_order_id: string | null;
+  paypal_authorization_id: string | null;
+  approval_url: string | null;
+}
+
+export interface HoldRequest {
+  hold: HoldRow;
+  approval_url: string | null;
 }
 
 export interface NegotiationOutcome {
@@ -122,6 +132,8 @@ export interface NegotiationOutcome {
 }
 
 export const apiF = {
+  scheduleChanged: (dropId: string, milestone_title: string) =>
+    api<{ approval_invalidated: boolean; voided_hold: string | null; rebooked_hold: string | null; approval_url: string | null }>(`/drops/${dropId}/schedule-changed`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
   negotiate: (dropId: string, items: { product_id: string; qty: number }[]) =>
     api<{ label: string; list_cents: number; ceiling_cents: number; outcomes: NegotiationOutcome[]; best: NegotiationOutcome | null; saving_cents: number; applied_to_charge: boolean }>(
       `/drops/${dropId}/negotiate`,
@@ -143,7 +155,11 @@ export const apiF = {
   verifyLedger: (dropId: string) => api<{ ok: boolean; entries: number; broken_at_seq: number | null }>(`/drops/${dropId}/ledger/verify`),
   holds: (dropId: string) => api<HoldRow[]>(`/drops/${dropId}/holds`),
   rebookHold: (dropId: string, milestone_title: string) =>
-    api<{ voided: string | null; hold: HoldRow }>(`/drops/${dropId}/holds/rebook`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
+    api<{ voided: string | null; hold: HoldRow; approval_url: string | null }>(`/drops/${dropId}/holds/rebook`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
+  requestHold: (dropId: string, milestone_title: string) =>
+    api<HoldRequest>(`/drops/${dropId}/holds`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
+  authorizeHold: (dropId: string, holdId: string, order_id: string) =>
+    api<{ status: string; paypal_authorization_id: string }>(`/drops/${dropId}/holds/${holdId}/authorize`, { method: 'POST', body: JSON.stringify({ order_id }) }),
 };
 
 export interface PayoutItem {

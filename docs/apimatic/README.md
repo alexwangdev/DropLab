@@ -43,6 +43,24 @@ The skill files were copied as found. The plugin's own README table lists nine P
 
 1. The coding agent loads the TypeScript skills before writing PayPal code.
 2. `server/src/paypal.ts` uses the Orders v2 and Payouts v1 request shapes from the spec.
-3. [`docs/apimatic-trace.md`](../apimatic-trace.md) shows three operations traced from PayPal's official OpenAPI spec: create, capture, and payout batch. Regenerate it with `cd server && npm run trace:all`.
+3. [`docs/apimatic-trace.md`](../apimatic-trace.md) shows five operations traced from PayPal's official OpenAPI specs: Orders v2 create, Orders v2 capture, Payouts v1 batch, Payments v2 refund, and webhook signature verification (trace only). Regenerate it with `cd server && npm run trace:all`.
 
 The plugin is **not** a runtime dependency of the server. Nothing in `server/` imports or calls APIMatic.
+
+## Skill → code mapping (TypeScript skills)
+
+The app does **not** use the APIMatic PayPal SDK. `server/src/paypal.ts` calls PayPal's REST API directly with `fetch`, using request shapes taken from PayPal's official OpenAPI spec (see [`docs/apimatic-trace.md`](../apimatic-trace.md)). So a skill maps to code only where the skill's rule is actually followed. Where it has no counterpart, the table says "not used".
+
+| Skill | Code | What is true in the code |
+|---|---|---|
+| `typescript-authentication` | `server/src/paypal.ts` → `getAccessToken()` | OAuth2 client credentials, Basic auth header, token cached until 60 s before expiry. |
+| `typescript-calling-endpoints` | `paypal.ts` → `createOrder`, `captureOrder`, `createPayout`, `getPayout`, `refundCapture` | Each is a raw HTTP call to a documented path. The SDK's operation-by-operation calling style is not used. |
+| `typescript-client-initialization` | not used | No SDK client is constructed. `paypalRequest()` builds each request. |
+| `typescript-configuration-resilience` | `paypal.ts` → `PayPal-Request-Id` on every mutating call; `server/src/config.ts` sandbox guard | Idempotency keys are set. The app does not implement retries or backoff. |
+| `typescript-error-handling` | `paypal.ts` → `PayPalError` (status + body); `server/src/index.ts` → `errorBody()` / `handleError()` | PayPal's status and error body are passed through to the response, not replaced. |
+| `typescript-getting-started` | not used | The SDK is not installed. |
+| `typescript-integrate-paypal` | `paypal.ts` Orders v2 create, capture and authorize; Payouts v1 batch; Payments v2 refund and authorization capture/void | Follows the flows the skill describes for those operations. No SDK code. |
+| `typescript-models` | `server/src/money.ts` → `centsToAmount()`, `splitCents()` | Money is integer cents, formatted as the decimal string PayPal expects. No SDK model types are used. |
+| `typescript-testing` | `server/test/routes.test.ts`, `channel3-mcp.test.ts` (injected fakes) | PayPal calls are not mocked. The guards that run before any PayPal call (refund, authorize, capture, payout reuse, schedule change) are tested offline through the real routes against a separate test database. |
+
+Not done: webhook handling. `docs/apimatic-trace.md` section (e) is a trace only. The app polls and does not register or verify webhooks.

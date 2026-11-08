@@ -1,17 +1,44 @@
-# Channel3: REST path in use, MCP path documented and deferred
+# Channel3 MCP: verified and wired (with REST fallback)
 
-## Decision
+## Status (verified 2026-11-08)
 
-The planner calls Channel3's **REST** API (`POST https://api.trychannel3.com/v1/search` and `GET /v1/products/{id}`, `x-api-key` header). It does not call MCP.
+The MCP endpoint answers and is wired. Every plan search goes through `server/src/channel3-mcp.ts`:
 
-## Why MCP is deferred
+- **MCP first**: `https://mcp.trychannel3.com/` (Streamable HTTP, no key on the free tier).
+- **REST fallback**: if MCP errors, the exact MCP error is logged and returned in the plan response (`searches[].mcp_error`), and the search is repeated over REST. A plan never fails because MCP failed.
 
-- The MCP endpoint in the spec is `https://mcp.trychannel3.com/` (Streamable HTTP, free tier without a key). The brief names it. I did not verify its tool names, input schema or response shape in this build.
-- Wiring a tool call I have not checked would be guessing an API, which the spec forbids. The REST path is verified: live searches and price re-checks both return real data.
-- The planner's `search_products` tool returns the same fields the REST path already uses, so a later MCP wrapper could sit behind the same tool with the REST path as fallback.
+## Verified facts
 
-## What would be needed to wire MCP
+Checked live with JSON-RPC over HTTP (protocol version `2025-06-18`):
 
-1. Connect to `https://mcp.trychannel3.com/` and list its tools. Record the names and input schema here.
-2. Map one MCP search tool to `searchProducts()` with the same return type.
-3. Keep REST as the fallback when MCP errors. Log the exact error.
+1. `initialize` returns `serverInfo` `Channel3` version `4.0.0`, title "Channel3 Shopping". The response carries an `mcp-session-id` header, which the client sends on later calls.
+2. `notifications/initialized` returns HTTP 202.
+3. `tools/list` returns 8 tools:
+   - `search_products`: `query`, `image_url`, `thread_id`. Returns up to 8 product cards. The result includes a `thread_id` that must be passed on later calls in the same conversation.
+   - `get_products`: `product_ids`, `thread_id`
+   - `browse_products`: `query`, `image_url`, `page_token`, `limit`, `thread_id`, `device_id`
+   - `get_similar`: `product_id`, `limit`, `thread_id`, `device_id`
+   - `get_details`: `product_id`, `selected_options`, `thread_id`, `device_id`
+   - `get_price_history`: `product_id`, `selected_options`, `thread_id`, `device_id`
+   - `watch_product`: `product_id`, `notify_on`, `domains`, `selected_options`, `thread_id`, `session_key`, `harness`, `conversation_id`
+   - `unwatch_product`: `watch_id`, `thread_id`, `session_key`, `harness`, `conversation_id`
+4. `tools/call` `search_products` with `{query: "beach tote bag"}` returns `structuredContent.products`. Each product has the same shape as the REST search: `id`, `title`, `brands`, `images`, and `offers[]` with `domain`, `price.price` (dollars), `price.currency`, and `availability`. The code maps it with the same `mapProducts()` function as REST.
+
+## What is wired
+
+- `searchWithFallback(query, limit, threadId)` in `channel3-mcp.ts` calls `search_products` over MCP and caps the result at our limit (6).
+- The planner's `search_products` tool and a second `search_supplies` tool both go through it. The plan route stores every product with the query that found it (`products.search_query`).
+- Tests: `server/test/channel3-mcp.test.ts` covers MCP error → REST fallback (the exact error is kept, no throw), MCP success (REST not called), and the mapper's rule that a product with no in-stock USD offer is skipped.
+
+## Live evidence
+
+A real plan run (`2026-11-08`): the model made two calls. Both `search_products` ("beach merch drop Toronto") and `search_supplies` ("beach pop-up supplies") returned `source: mcp` with `mcp_error: null`, 6 products each.
+
+## Not verified
+
+- Whether `get_products` or `get_price_history` would improve the gate; this round wires only search.
+- The MCP free-tier rate limits. Each plan makes two searches, plus one session initialise per 10 minutes.
+
+## Why it was deferred before (history)
+
+In the previous round the MCP tool names and input schema were not verified, so wiring it would have meant guessing an API. That was resolved by the live `tools/list` above.

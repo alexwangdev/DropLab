@@ -70,12 +70,13 @@ export async function createOrder(args: {
   description: string;
   returnUrl: string;
   cancelUrl: string;
+  intent?: 'CAPTURE' | 'AUTHORIZE';
 }): Promise<CreatedOrder> {
   const json = await paypalRequest(
     'POST',
     '/v2/checkout/orders',
     {
-      intent: 'CAPTURE',
+      intent: args.intent ?? 'CAPTURE',
       purchase_units: [
         {
           reference_id: args.referenceId,
@@ -154,4 +155,39 @@ export async function captureOrder(orderId: string, requestId: string): Promise<
     status: json.status,
     paypal_capture_id: capture?.id ?? null,
   };
+}
+
+/** Refund of a capture (Payments v2). Full amount in the caller's currency, as integer cents converted by centsToAmount. */
+export async function refundCapture(captureId: string, amountCents: number, currency: string, requestId: string) {
+  return paypalRequest(
+    'POST',
+    `/v2/payments/captures/${encodeURIComponent(captureId)}/refund`,
+    { amount: { value: centsToAmount(amountCents), currency_code: currency } },
+    requestId,
+  ) as Promise<{ id: string; status: string }>;
+}
+
+/**
+ * AUTHORIZE flow (Orders v2 /authorize, Payments v2 /authorizations). Each call takes a PayPal-Request-Id.
+ * The authorize call needs the buyer to have approved the order first, like capture does.
+ */
+export async function authorizeOrder(orderId: string, requestId: string) {
+  return paypalRequest('POST', `/v2/checkout/orders/${encodeURIComponent(orderId)}/authorize`, {}, requestId);
+}
+
+export async function captureAuthorization(authorizationId: string, amountCents: number, currency: string, requestId: string) {
+  return paypalRequest(
+    'POST',
+    `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}/capture`,
+    { amount: { value: centsToAmount(amountCents), currency_code: currency }, final_capture: true },
+    requestId,
+  );
+}
+
+export async function voidAuthorization(authorizationId: string, requestId: string) {
+  return paypalRequest('POST', `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}/void`, undefined, requestId);
+}
+
+export async function getAuthorization(authorizationId: string) {
+  return paypalRequest('GET', `/v2/payments/authorizations/${encodeURIComponent(authorizationId)}`);
 }

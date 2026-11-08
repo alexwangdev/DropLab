@@ -25,6 +25,7 @@ export interface Product {
   retailer: string;
   availability: string;
   source: 'channel3' | 'seed';
+  search_query: string | null;
 }
 
 export interface Milestone {
@@ -35,6 +36,7 @@ export interface Milestone {
   end_day: number;
   depends_on_id: string | null;
   paypal_status: 'pending' | 'paid';
+  resource: 'creator' | 'supplier' | 'platform' | null;
 }
 
 export interface Order {
@@ -57,17 +59,18 @@ export interface PayoutRecord {
   created_at: string;
 }
 
-export type NewProduct = Omit<Product, 'id' | 'drop_id'>;
+export type NewProduct = Omit<Product, 'id' | 'drop_id' | 'search_query'> & { search_query?: string | null };
 
 const today = () => new Date().toISOString().slice(0, 10);
 
 /** Fixed P0 timeline from the spec: Order D0 -> Ship D2 -> Setup D3 -> Sell D3-5 -> Payout D6. */
 function milestoneTemplate(dropId: string) {
-  const order = { id: randomUUID(), drop_id: dropId, title: 'Order', start_day: 0, end_day: 0, depends_on_id: null as string | null, paypal_status: 'pending' as const };
-  const ship = { ...order, id: randomUUID(), title: 'Ship', start_day: 2, end_day: 2, depends_on_id: order.id };
-  const setup = { ...order, id: randomUUID(), title: 'Setup', start_day: 3, end_day: 3, depends_on_id: ship.id };
-  const sell = { ...order, id: randomUUID(), title: 'Sell', start_day: 3, end_day: 5, depends_on_id: setup.id };
-  const payout = { ...order, id: randomUUID(), title: 'Payout', start_day: 6, end_day: 6, depends_on_id: sell.id };
+  // Resource = the party that owns the milestone. Same three payout parties as the split.
+  const order = { id: randomUUID(), drop_id: dropId, title: 'Order', start_day: 0, end_day: 0, depends_on_id: null as string | null, paypal_status: 'pending' as const, resource: 'creator' as const };
+  const ship = { ...order, id: randomUUID(), title: 'Ship', start_day: 2, end_day: 2, depends_on_id: order.id, resource: 'supplier' as const };
+  const setup = { ...order, id: randomUUID(), title: 'Setup', start_day: 3, end_day: 3, depends_on_id: ship.id, resource: 'supplier' as const };
+  const sell = { ...order, id: randomUUID(), title: 'Sell', start_day: 3, end_day: 5, depends_on_id: setup.id, resource: 'creator' as const };
+  const payout = { ...order, id: randomUUID(), title: 'Payout', start_day: 6, end_day: 6, depends_on_id: sell.id, resource: 'platform' as const };
   return [order, ship, setup, sell, payout];
 }
 
@@ -83,9 +86,9 @@ export async function createDrop(input: { title: string; city: string; budget_ce
     );
     for (const m of milestoneTemplate(id)) {
       await client.query(
-        `INSERT INTO milestones (id, drop_id, title, start_day, end_day, depends_on_id, paypal_status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [m.id, id, m.title, m.start_day, m.end_day, m.depends_on_id, m.paypal_status],
+        `INSERT INTO milestones (id, drop_id, title, start_day, end_day, depends_on_id, paypal_status, resource)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [m.id, id, m.title, m.start_day, m.end_day, m.depends_on_id, m.paypal_status, m.resource],
       );
     }
     await client.query('COMMIT');
@@ -122,9 +125,9 @@ export async function setProducts(dropId: string, list: NewProduct[]): Promise<P
     await client.query('DELETE FROM products WHERE drop_id = $1', [dropId]);
     for (const p of list) {
       await client.query(
-        `INSERT INTO products (id, drop_id, channel3_id, title, image_url, price_cents, currency, retailer, availability, source)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-        [randomUUID(), dropId, p.channel3_id, p.title, p.image_url, p.price_cents, p.currency, p.retailer, p.availability, p.source],
+        `INSERT INTO products (id, drop_id, channel3_id, title, image_url, price_cents, currency, retailer, availability, source, search_query)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+        [randomUUID(), dropId, p.channel3_id, p.title, p.image_url, p.price_cents, p.currency, p.retailer, p.availability, p.source, p.search_query ?? null],
       );
     }
     await client.query("UPDATE drops SET status = 'live' WHERE id = $1", [dropId]);
@@ -235,10 +238,10 @@ function toDrop(r: any): Drop {
   return { id: r.id, title: r.title, city: r.city, budget_cents: r.budget_cents, status: r.status, start_date: r.start_date, plan_text: r.plan_text, created_at: iso(r.created_at) };
 }
 function toProduct(r: any): Product {
-  return { id: r.id, drop_id: r.drop_id, channel3_id: r.channel3_id, title: r.title, image_url: r.image_url, price_cents: r.price_cents, currency: r.currency, retailer: r.retailer, availability: r.availability, source: r.source };
+  return { id: r.id, drop_id: r.drop_id, channel3_id: r.channel3_id, title: r.title, image_url: r.image_url, price_cents: r.price_cents, currency: r.currency, retailer: r.retailer, availability: r.availability, source: r.source, search_query: r.search_query ?? null };
 }
 function toMilestone(r: any): Milestone {
-  return { id: r.id, drop_id: r.drop_id, title: r.title, start_day: r.start_day, end_day: r.end_day, depends_on_id: r.depends_on_id, paypal_status: r.paypal_status };
+  return { id: r.id, drop_id: r.drop_id, title: r.title, start_day: r.start_day, end_day: r.end_day, depends_on_id: r.depends_on_id, paypal_status: r.paypal_status, resource: r.resource ?? null };
 }
 function toOrder(r: any): Order {
   return { paypal_order_id: r.paypal_order_id, drop_id: r.drop_id, items: r.items, total_cents: r.total_cents, currency: r.currency, status: r.status, paypal_capture_id: r.paypal_capture_id, capture_request_id: r.capture_request_id, created_at: iso(r.created_at) };

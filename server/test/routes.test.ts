@@ -6,7 +6,8 @@ import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-const TEST_DB = process.env.DATABASE_URL_TEST ?? 'postgres://droplab:droplab_dev_pw@localhost:5432/droplab_test';
+const TEST_DB = process.env.DATABASE_URL_TEST ?? '';
+if (!TEST_DB) throw new Error('Set DATABASE_URL_TEST to a separate test database (never the dev database).');
 // Must be set before config.ts loads the .env file (dotenv never overrides values already set).
 process.env.DATABASE_URL = TEST_DB;
 process.env.DROPLAB_TEST = '1';
@@ -130,20 +131,6 @@ test('ledger verifies after decisions, and an edited row is caught at its seq', 
   await pool.query('UPDATE ledger_entries SET amount_cents = $3 WHERE drop_id = $1 AND seq = $2', [id, seq, orig.rows[0].amount_cents]);
 });
 
-test('holds: place, then rebook voids the old hold and books a new one', async () => {
-  const { id } = await freshDrop(50_000);
-  const placed = await call('POST', `/drops/${id}/holds`, { milestone_title: 'Ship' });
-  assert.equal(placed.status, 201);
-  assert.equal(placed.body.amount_cents, 10_000); // 20% of $500
-  assert.match(placed.body.label, /Simulated hold/);
-  const again = await call('POST', `/drops/${id}/holds`, { milestone_title: 'Ship' });
-  assert.equal(again.status, 409);
-  const rebooked = await call('POST', `/drops/${id}/holds/rebook`, { milestone_title: 'Ship' });
-  assert.equal(rebooked.status, 200);
-  assert.equal(rebooked.body.voided, placed.body.id);
-  assert.equal(rebooked.body.hold.status, 'held');
-});
-
 test('duplicate payout returns the same batch with reused: true and makes no PayPal call', async () => {
   // Seed a completed order and its payout record directly in the test database (no PayPal calls).
   const { id } = await freshDrop();
@@ -175,3 +162,67 @@ test('payout is refused for an order that is not captured', async () => {
   assert.equal(r.status, 409);
 });
 
+test('refund is refused for an order that is not captured', async () => {
+  const { id } = await freshDrop();
+  const orderId = `TEST-REFUND-OPEN-${Date.now()}`;
+  await store.saveOrder({
+    paypal_order_id: orderId, drop_id: id, items: [], total_cents: 1_000, currency: 'USD',
+    status: 'PAYER_ACTION_REQUIRED', paypal_capture_id: null, capture_request_id: null, created_at: new Date().toISOString(),
+  });
+  const r = await call('POST', `/paypal/orders/${orderId}/refund`);
+  assert.equal(r.status, 409);
+});
+
+test('a second refund for the same order is refused from the ledger, with no PayPal call', async () => {
+  const { id } = await freshDrop();
+  const orderId = `TEST-REFUND-TWICE-${Date.now()}`;
+  await store.saveOrder({
+    paypal_order_id: orderId, drop_id: id, items: [], total_cents: 1_000, currency: 'USD',
+    status: 'COMPLETED', paypal_capture_id: 'TEST-CAPTURE-R', capture_request_id: null, created_at: new Date().toISOString(),
+  });
+  await pool.query(
+    `INSERT INTO ledger_entries (id, drop_id, seq, prev_hash, hash, kind, actor, amount_cents, paypal_ref, verdict, detail)
+     VALUES (gen_random_uuid(), $1, (SELECT COALESCE(MAX(seq),0)+1 FROM ledger_entries WHERE drop_id = $1), 'x', 'x', 'refund', 'paypal', 1000, 'TEST-REFUND-ID', 'COMPLETED', $2)`,
+    [id, JSON.stringify({ paypal_order_id: orderId })],
+  );
+  const r = await call('POST', `/paypal/orders/${orderId}/refund`);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.refund_id, 'TEST-REFUND-ID');
+});
+
+test('authorize refuses an order_id that does not belong to the pending hold', async () => {
+  const { id } = await freshDrop();
+  const hold = await pool.query(
+    `INSERT INTO holds (id, drop_id, milestone_title, amount_cents, label, status, paypal_order_id)
+     VALUES (gen_random_uuid(), $1, 'Ship', 10000, 'test', 'pending', 'TEST-ORDER-A') RETURNING id`,
+    [id],
+  );
+  const r = await call('POST', `/drops/${id}/holds/${hold.rows[0].id}/authorize`, { order_id: 'TEST-ORDER-B' });
+  assert.equal(r.status, 400);
+});
+
+test('capture refuses a hold that is not held (no PayPal call)', async () => {
+  const { id } = await freshDrop();
+  const hold = await pool.query(
+    `INSERT INTO holds (id, drop_id, milestone_title, amount_cents, label, status, paypal_order_id)
+     VALUES (gen_random_uuid(), $1, 'Ship', 10000, 'test', 'pending', 'TEST-ORDER-C') RETURNING id`,
+    [id],
+  );
+  const r = await call('POST', `/drops/${id}/holds/${hold.rows[0].id}/capture`);
+  assert.equal(r.status, 409);
+});
+
+test('a schedule change invalidates an approved mandate and writes the ledger entries', async () => {
+  const { id } = await freshDrop(50_000);
+  await gov.tx(async (c: any) => {
+    await gov.setMandateApproval(c, id, 'hash-test', 1_800);
+  });
+  const r = await call('POST', `/drops/${id}/schedule-changed`, { milestone_title: 'Sell' });
+  assert.equal(r.status, 200);
+  assert.equal(r.body.approval_invalidated, true);
+  const m = await call('GET', `/drops/${id}/mandate`);
+  assert.equal(m.body.status, 'invalidated');
+  const kinds = (await call('GET', `/drops/${id}/ledger`)).body.map((e: any) => e.kind);
+  assert.ok(kinds.includes('approval_invalidated'));
+  assert.ok(kinds.includes('schedule_changed'));
+});

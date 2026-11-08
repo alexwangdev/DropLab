@@ -1,0 +1,168 @@
+{
+ "operation": "POST /v1/notifications/verify-webhook-signature",
+ "spec": "notifications_webhooks_v1.json",
+ "request_body_schema": "verify_webhook_signature",
+ "schemas": {
+  "verify_webhook_signature": {
+   "type": "object",
+   "title": "Verify Webhook Signature",
+   "description": "A verify webhook signature request.",
+   "properties": {
+    "auth_algo": {
+     "type": "string",
+     "maxLength": 100,
+     "pattern": "^[a-zA-Z0-9]+$",
+     "description": "The algorithm that PayPal uses to generate the signature and that you can use to verify the signature. Extract this valu"
+    },
+    "cert_url": {
+     "type": "string",
+     "maxLength": 500,
+     "format": "uri",
+     "description": "The X.509 public key certificate. Download the certificate from this URL and use it to verify the signature. Extract thi"
+    },
+    "transmission_id": {
+     "type": "string",
+     "maxLength": 50,
+     "pattern": "^(?!\\d+$)\\w+\\S+",
+     "description": "The ID of the HTTP transmission. Contained in the `PAYPAL-TRANSMISSION-ID` header of the notification message."
+    },
+    "transmission_sig": {
+     "type": "string",
+     "maxLength": 500,
+     "pattern": "^(?!\\d+$)\\w+\\S+",
+     "description": "The PayPal-generated asymmetric signature. Appears in the `PAYPAL-TRANSMISSION-SIG` header of the notification message."
+    },
+    "transmission_time": {
+     "type": "string",
+     "maxLength": 100,
+     "format": "date-time",
+     "description": "The date and time of the HTTP transmission, in [Internet date and time format](https://tools.ietf.org/html/rfc3339#secti"
+    },
+    "webhook_id": {
+     "type": "string",
+     "maxLength": 50,
+     "pattern": "^[a-zA-Z0-9]+$",
+     "description": "The ID of the webhook as configured in your Developer Portal account."
+    },
+    "webhook_event": {
+     "$ref": "#/components/schemas/event"
+    }
+   },
+   "required": [
+    "auth_algo",
+    "cert_url",
+    "transmission_id",
+    "transmission_sig",
+    "transmission_time",
+    "webhook_id",
+    "webhook_event"
+   ]
+  },
+  "event": {
+   "type": "object",
+   "title": "Event",
+   "description": "A webhook event notification.",
+   "properties": {
+    "id": {
+     "type": "string",
+     "description": "The ID of the webhook event notification.",
+     "readOnly": true
+    },
+    "create_time": {
+     "type": "string",
+     "format": "date-time",
+     "description": "The date and time when the webhook event notification was created, in [Internet date and time format](https://tools.ietf",
+     "readOnly": true
+    },
+    "resource_type": {
+     "type": "string",
+     "description": "The name of the resource related to the webhook notification event.",
+     "readOnly": true
+    },
+    "event_version": {
+     "$ref": "#/components/schemas/event_version"
+    },
+    "event_type": {
+     "type": "string",
+     "description": "The event that triggered the webhook event notification.",
+     "readOnly": true
+    },
+    "summary": {
+     "type": "string",
+     "description": "A summary description for the event notification.",
+     "readOnly": true
+    },
+    "resource_version": {
+     "$ref": "#/components/schemas/resource_version"
+    },
+    "resource": {
+     "$ref": "#/components/schemas/resource"
+    },
+    "links": {
+     "$ref": "#/components/schemas/link_description_list"
+    }
+   }
+  },
+  "event_version": {
+   "type": "string",
+   "title": "Event Version",
+   "description": "The event version in the webhook notification.",
+   "deprecated": true,
+   "pattern": "^([0-9]+.[0-9]+)$"
+  },
+  "resource_version": {
+   "title": "Resource Version",
+   "description": "The resource version in the webhook notification.",
+   "type": "string",
+   "pattern": "^([0-9]+.[0-9]+)$"
+  },
+  "resource": {
+   "type": "object",
+   "title": "Resource",
+   "description": "The resource that triggered the webhook event notification.",
+   "readOnly": true,
+   "additionalProperties": true
+  },
+  "link_description_list": {
+   "type": "array",
+   "description": "An array of request-related [HATEOAS links](/docs/api/reference/api-responses/#hateoas-links).",
+   "readOnly": true,
+   "items": {
+    "$ref": "#/components/schemas/link_description"
+   }
+  },
+  "link_description": {
+   "type": "object",
+   "title": "Link Description",
+   "description": "The request-related [HATEOAS link](/docs/api/reference/api-responses/#hateoas-links) information.",
+   "required": [
+    "href",
+    "rel"
+   ],
+   "properties": {
+    "href": {
+     "type": "string",
+     "description": "The complete target URL. To make the related call, combine the method with this [URI Template-formatted](https://tools.i"
+    },
+    "rel": {
+     "type": "string",
+     "description": "The [link relation type](https://tools.ietf.org/html/rfc5988#section-4), which serves as an ID for a link that unambiguo"
+    },
+    "method": {
+     "type": "string",
+     "description": "The HTTP method required to make the related call.",
+     "enum": [
+      "GET",
+      "POST",
+      "PUT",
+      "DELETE",
+      "HEAD",
+      "CONNECT",
+      "OPTIONS",
+      "PATCH"
+     ]
+    }
+   }
+  }
+ }
+}

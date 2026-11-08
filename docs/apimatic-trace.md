@@ -8,7 +8,9 @@ Overall: all three operations passed
 
 - orders-create: PASS (1 attempt)
 - orders-capture: PASS (2 attempts)
-- payouts-create: PASS (1 attempt)
+- payouts-create: PASS (2 attempts)
+- payments-refund: PASS (1 attempt)
+- webhooks-verify: PASS (2 attempts)
 
 ## (a) Orders v2 create
 
@@ -19,7 +21,7 @@ Result: PASS on attempt 1
 ### Attempt 1
 
 ```json
-{ "name": "create_paypal_order_request", "arguments": {"intent":"CAPTURE","purchase_units":[{"reference_id":"drop-123","description":"DropLab pop-up: 3-day beach pop-up","amount":{"currency_code":"USD","value":"65.00"}}],"payment_source":{"paypal":{"experience_context":{"return_url":"http://localhost:5173/drop/drop-123/checkout?paypal=return","cancel_url":"http://localhost:5173/drop/drop-123/checkout?paypal=cancel","user_action":"PAY_NOW","shipping_preference":"SET_PROVIDED_ADDRESS"}}}} }
+{ "name": "create_paypal_order_request", "arguments": {"intent":"CAPTURE","purchase_units":[{"reference_id":"drop-123","description":"DropLab pop-up: 3-day beach pop-up","amount":{"currency_code":"USD","value":"65.00"}}],"payment_source":{"paypal":{"experience_context":{"return_url":"http://localhost:5173/drop/drop-123/checkout?paypal=return","cancel_url":"http://localhost:5173/drop/drop-123/checkout?paypal=cancel","user_action":"PAY_NOW"}}}} }
 ```
 
 - PASS: every rule checked for this operation holds.
@@ -36,7 +38,7 @@ Result: PASS on attempt 2
 { "name": "capture_paypal_order_request", "arguments": (none) }
 ```
 
-- FAIL: model returned no tool call (finish_reason=length, content="Here's a thinking process:\n\n1.  **Analyze User Input:**\n   - User wants to build a request for: `POST /v2/checkout/orders/{id}/capture`\n   - Provided parameters")
+- FAIL: model returned no tool call (finish_reason=length, content="Here's a thinking process:\n\n1.  **Analyze User Input:**\n   - Operation: POST /v2/checkout/orders/{id}/capture\n   - Required parameters from user: `order_id`: \"E")
 
 ### Attempt 2
 
@@ -50,12 +52,56 @@ Result: PASS on attempt 2
 
 Operation: `POST /v1/payments/payouts` · spec: `payments_payouts_batch_v1.json` · request schema: `create_payout_request` · excerpt: `server/scripts/apimatic/excerpts/payouts-create.json`
 
+Result: PASS on attempt 2
+
+### Attempt 1
+
+```json
+{ "name": "create_payout_request", "arguments": (none) }
+```
+
+- FAIL: model returned no tool call (finish_reason=length, content="<tool_call>\n<function=create_payout_request>\n<parameter=sender_batch_header>\n{\"sender_batch_id\": \"batch-2025-08-15-001\", \"email_subject\": \"Payout split\"}\n</para")
+
+### Attempt 2
+
+```json
+{ "name": "create_payout_request", "arguments": {"sender_batch_header":{"sender_batch_id":"batch-2025-08-15-001","email_subject":"Payout split"},"items":[{"recipient_type":"EMAIL","amount":{"value":"45.50","currency":"USD"},"receiver":"creator@example.com","sender_item_id":"item-creator"},{"recipient_type":"EMAIL","amount":{"value":"13.00","currency":"USD"},"receiver":"supplier@example.com","sender_item_id":"item-supplier"},{"recipient_type":"EMAIL","amount":{"value":"6.50","currency":"USD"},"receiver":"platform@example.com","sender_item_id":"item-platform"}]} }
+```
+
+- PASS: every rule checked for this operation holds.
+
+## (d) Payments v2 refund
+
+Operation: `POST /v2/payments/captures/{capture_id}/refund` · spec: `payments_payment_v2.json` · request schema: `refund_request` · excerpt: `server/scripts/apimatic/excerpts/payments-refund.json`
+
 Result: PASS on attempt 1
 
 ### Attempt 1
 
 ```json
-{ "name": "create_payout_request", "arguments": {"sender_batch_header":{"sender_batch_id":"batch-12345","email_subject":"Your payout split"},"items":[{"recipient_type":"EMAIL","amount":{"value":"45.50","currency":"USD"},"receiver":"creator@example.com","note":"Creator share 70%","sender_item_id":"item-creator"},{"recipient_type":"EMAIL","amount":{"value":"13.00","currency":"USD"},"receiver":"supplier@example.com","note":"Supplier share 20%","sender_item_id":"item-supplier"},{"recipient_type":"EMAIL","amount":{"value":"6.50","currency":"USD"},"receiver":"platform@example.com","note":"Platform share 10%","sender_item_id":"item-platform"}]} }
+{ "name": "refund_capture_request", "arguments": {"capture_id":"EXAMPLE-CAPTURE-ID","body":{"amount":{"value":"10.00","currency_code":"USD"},"note_to_payer":"refund a single item from a completed drop"}} }
+```
+
+- PASS: every rule checked for this operation holds.
+
+## (e) Webhook signature verification (trace only)
+
+Operation: `POST /v1/notifications/verify-webhook-signature` · spec: `notifications_webhooks_v1.json` · request schema: `verify_webhook_signature` · excerpt: `server/scripts/apimatic/excerpts/webhooks-verify.json`
+
+Result: PASS on attempt 2
+
+### Attempt 1
+
+```json
+{ "name": "verify_webhook_signature_request", "arguments": (none) }
+```
+
+- FAIL: model returned no tool call (finish_reason=length, content="<tool_call>\n<function=verify_webhook_signature_request>\n<parameter=auth_algo>\nSHA256withRSA\n</parameter>\n<parameter=cert_url>\nhttps://example.com/cert.pem\n</par")
+
+### Attempt 2
+
+```json
+{ "name": "verify_webhook_signature_request", "arguments": {"auth_algo":"SHA256withRSA","cert_url":"https://example.com/cert.pem","transmission_id":"EXAMPLE-TRANSMISSION-ID","transmission_sig":"EXAMPLE-TRANSMISSION-SIGNATURE","transmission_time":"2023-01-01T12:00:00Z","webhook_id":"EXAMPLE-WEBHOOK-ID","webhook_event":{"event_type":"PAYMENT.CAPTURE.COMPLETED"}} }
 ```
 
 - PASS: every rule checked for this operation holds.

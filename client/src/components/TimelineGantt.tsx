@@ -4,9 +4,6 @@ import '@bryntum/gantt-enterprise/stockholm.css';
 import type { HoldRow, Milestone } from '../api';
 import { money } from '../api';
 
-/** Plan owners: a fixed template from the spec (creator sells, supplier ships and sets up, platform pays out). */
-const OWNER: Record<string, string> = { Order: 'creator', Ship: 'supplier', Setup: 'supplier', Sell: 'creator', Payout: 'platform' };
-
 interface Props {
   startDate: string; // YYYY-MM-DD, Day 0
   milestones: Milestone[];
@@ -25,6 +22,12 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10);
  */
 const NO_HOLDS: HoldRow[] = [];
 
+function holdTag(h: HoldRow): string {
+  if (h.status === 'pending') return 'awaiting buyer approval';
+  if (h.paypal_authorization_id) return `PayPal auth ${h.paypal_authorization_id.slice(0, 8)}…`;
+  return 'simulated';
+}
+
 export default function TimelineGantt({ startDate, milestones, onWarning, onMoved, holds = NO_HOLDS }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const warn = useRef(onWarning);
@@ -40,11 +43,11 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       return isoDay(d);
     };
     // Latest active hold per milestone (a voided hold is history, not shown on the bar).
-    const holdByTitle = new Map(holds.filter((h) => h.status === 'held').map((h) => [h.milestone_title, h]));
+    const holdByTitle = new Map(holds.filter((h) => h.status === 'held' || h.status === 'pending').map((h) => [h.milestone_title, h]));
     const tasks = milestones.map((m) => ({
       id: m.id,
       name: m.title,
-      owner: OWNER[m.title] ?? '',
+      owner: m.resource ?? '', // from the milestone record (server), not a client map
       status: m.paypal_status === 'paid' ? 'Paid' : 'Planned',
       hold: holdByTitle.get(m.title)?.amount_cents ?? null,
       startDate: day(m.start_day),
@@ -78,12 +81,32 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
     let lastPayout: string | null = null;
     const startsByName = new Map<string, string>();
 
+    // One handler for every schedule change (drag or editor save). It reports the milestones whose
+    // start moved, so the page can invalidate the approval and re-book holds.
+    const handleScheduleChange = (source: any) => {
+      const after = payoutStart(source);
+      if (lastPayout && after && lastPayout !== after) {
+        warn.current?.(`Payout moved from ${lastPayout} to ${after}. Check payout timing with suppliers and buyers.`);
+      }
+      lastPayout = after;
+      const changed: string[] = [];
+      source.taskStore.forEach((t: any) => {
+        const now = t.startDate ? isoDay(new Date(t.startDate)) : null;
+        if (now && startsByName.get(t.name) !== now) {
+          if (startsByName.has(t.name)) changed.push(t.name);
+          startsByName.set(t.name, now);
+        }
+      });
+      if (changed.length) moved.current?.(changed);
+    };
+
     const gantt = new Gantt({
       appendTo: host.current,
       height: 280,
       viewPreset: 'weekAndDayLetter',
       project: { tasks, dependencies },
-      features: { criticalPaths: true, baselines: true },
+      // taskEdit: double-click a task to edit its dates. Saves go through the same change handler as a drag.
+      features: { criticalPaths: true, baselines: true, taskEdit: true },
       columns: [
         { type: 'name', field: 'name', width: 180 },
         { text: 'Owner', field: 'owner', width: 100 },
@@ -92,27 +115,14 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       // Hold status drawn on the bar itself (Community taskRenderer). Simulated holds are labelled.
       taskRenderer: ({ taskRecord }: any) => {
         const h = holdByTitle.get(taskRecord.name);
-        const label = h ? `${taskRecord.name} · hold ${money(h.amount_cents)} (${h.status}, simulated)` : taskRecord.name;
+        const label = h ? `${taskRecord.name} · hold ${money(h.amount_cents)} · ${holdTag(h)}` : taskRecord.name;
         return { tag: 'span', text: label };
       },
       listeners: {
-        afterTaskDrop: ({ source }: any) => {
-          const after = payoutStart(source);
-          if (lastPayout && after && lastPayout !== after) {
-            warn.current?.(`Payout moved from ${lastPayout} to ${after}. Check payout timing with suppliers and buyers.`);
-          }
-          lastPayout = after;
-          // Report every milestone whose start changed, so holds can be voided and re-booked.
-          const changed: string[] = [];
-          source.taskStore.forEach((t: any) => {
-            const now = t.startDate ? isoDay(new Date(t.startDate)) : null;
-            if (now && startsByName.get(t.name) !== now) {
-              if (startsByName.has(t.name)) changed.push(t.name);
-              startsByName.set(t.name, now);
-            }
-          });
-          if (changed.length) moved.current?.(changed);
-        },
+        afterTaskDrop: ({ source }: any) => handleScheduleChange(source),
+        // Editor save (double-click) reaches the same handler: one cascade path for drag and editor.
+        // The payload carries no save/cancel flag, so compare dates: only a saved edit changes them.
+        afterTaskEdit: ({ source }: any) => handleScheduleChange(source),
       },
     });
     lastPayout = payoutStart(gantt);

@@ -1,13 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ICellRendererParams } from 'ag-grid-community';
-import { AllCommunityModule, ModuleRegistry, type ColDef, type GridReadyEvent, type SelectionChangedEvent } from 'ag-grid-community';
-import { AllEnterpriseModule } from 'ag-grid-enterprise';
+import { AllCommunityModule, ModuleRegistry, type ColDef, type GridApi, type GridReadyEvent, type SelectionChangedEvent } from 'ag-grid-community';
+import { AllEnterpriseModule, AiToolkitModule } from 'ag-grid-enterprise';
 import { droplabTheme } from '../theme';
 import type { Product } from '../api';
 import { money } from '../api';
 
-ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule]);
+ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule, AiToolkitModule]);
 
 /** Product thumbnail (image from Channel3). Shows a dash when Channel3 sent no image. */
 function ThumbCell(p: ICellRendererParams<Product>) {
@@ -21,6 +21,8 @@ interface Props {
 }
 
 export default function ProductGrid({ products, onSelectionChange }: Props) {
+  const gridApi = useRef<GridApi<Product> | null>(null);
+  const [aiSchema, setAiSchema] = useState<string | null>(null);
   const columnDefs = useMemo<ColDef<Product>[]>(
     () => [
       { field: 'image_url', headerName: 'Image', width: 80, filter: false, sortable: false, cellRenderer: ThumbCell },
@@ -38,12 +40,26 @@ export default function ProductGrid({ products, onSelectionChange }: Props) {
         aggFunc: 'sum',
       },
       { field: 'availability', headerName: 'Stock', flex: 1 },
+      { field: 'search_query', headerName: 'Search', flex: 1, filter: 'agSetColumnFilter' },
       { field: 'source', headerName: 'Data source', flex: 1 },
     ],
     [],
   );
 
+  // AG Grid AI Toolkit (installed in ag-grid-enterprise): the grid's structured schema for AI services. Not AG Studio.
+  function showAiSchema() {
+    if (!gridApi.current) return;
+    const schema = gridApi.current.getStructuredSchema();
+    setAiSchema(JSON.stringify(schema, null, 2).slice(0, 4000));
+  }
+
   return (
+    <div>
+      <div className="row" style={{ marginBottom: 8 }}>
+        <button onClick={showAiSchema}>Show AI Toolkit schema</button>
+        <span className="muted">AG Grid AI Toolkit (installed module), not AG Studio.</span>
+      </div>
+      {aiSchema && <pre style={{ maxHeight: 220, overflow: 'auto', background: '#f8fafc', padding: 8, fontSize: 12 }}>{aiSchema}</pre>}
     <div className="grid-wrap">
       <AgGridReact<Product>
         theme={droplabTheme}
@@ -57,11 +73,15 @@ export default function ProductGrid({ products, onSelectionChange }: Props) {
         groupDefaultExpanded={1}
         rowSelection={{ mode: 'multiRow', checkboxes: true, headerCheckbox: true, enableClickSelection: false }}
         getRowId={(p) => p.data.id}
-        onGridReady={(e: GridReadyEvent<Product>) => e.api.sizeColumnsToFit()}
+        onGridReady={(e: GridReadyEvent<Product>) => {
+          gridApi.current = e.api;
+          e.api.sizeColumnsToFit();
+        }}
         onSelectionChanged={(e: SelectionChangedEvent<Product>) =>
           onSelectionChange(e.api.getSelectedRows())
         }
       />
+    </div>
     </div>
   );
 }

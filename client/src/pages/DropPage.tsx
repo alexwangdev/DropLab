@@ -4,7 +4,10 @@ import { api_, apiF, money, type Drop, type Evaluation, type HoldRow, type Ledge
 import ProductGrid from '../components/ProductGrid';
 import TimelineGantt from '../components/TimelineGantt';
 import LedgerGrid from '../components/LedgerGrid';
+import Workload from '../components/Workload';
 import Compare from '../components/Compare';
+import SearchSets from '../components/SearchSets';
+import PriceChart from '../components/PriceChart';
 import Negotiation from '../components/Negotiation';
 import PayoutChart, { type SplitRow } from '../components/PayoutChart';
 
@@ -76,28 +79,53 @@ export default function DropPage() {
     }
   }
 
+  // One path for drag and task-editor saves. The server invalidates an approved mandate and re-books
+  // the moved milestone's hold, then this page reloads what changed.
   async function onGateDrift(movedTitles: string[]) {
-    // F3: a moved milestone voids and re-books its active hold, one hold per milestone.
-    const activeTitles = new Set(holds.filter((h) => h.status === 'held').map((h) => h.milestone_title));
-    for (const title of movedTitles.filter((t) => activeTitles.has(t))) {
-      await apiF.rebookHold(id, title);
+    for (const title of movedTitles) {
+      const r = await apiF.scheduleChanged(id, title);
+      if (r.approval_url) setApprovedNote(`The moved hold needs the buyer's approval on PayPal: ${r.approval_url}`);
     }
-    await refreshHolds();
+    const fresh = await api_.getDrop(id);
+    setMandate(fresh.mandate);
+    setHolds(fresh.holds);
     await refreshLedger();
   }
 
+  // A supplier hold is a PayPal authorization. Each one needs the buyer to approve it on PayPal, so the
+  // page sends the buyer to the approval link and authorizes the hold when they come back.
   async function placeHold(title: string) {
     setError(null);
     try {
-      const res = await fetch(`/api/drops/${id}/holds`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ milestone_title: title }) });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
+      const r = await apiF.requestHold(id, title);
+      if (r.approval_url) {
+        window.location.href = r.approval_url;
+        return;
+      }
       await refreshHolds();
       await refreshLedger();
     } catch (e) {
       setError((e as Error).message);
     }
   }
+
+  // Back from PayPal approval of a hold: authorize it, then clear the URL.
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search);
+    const holdId = q.get('hold');
+    const token = q.get('token');
+    if (!holdId || q.get('paypal') !== 'return' || !token) return;
+    apiF
+      .authorizeHold(id, holdId, token)
+      .then((r) => setApprovedNote(`Hold authorized on PayPal: ${r.paypal_authorization_id}`))
+      .catch((e: Error) => setError(e.message))
+      .finally(() => {
+        window.history.replaceState(null, '', window.location.pathname);
+        refreshHolds().catch(() => undefined);
+        refreshLedger().catch(() => undefined);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
 
   async function onVerify() {
     setChain(await apiF.verifyLedger(id));
@@ -160,17 +188,23 @@ export default function DropPage() {
       <div className="card">
         <h2>Timeline</h2>
         {warning && <div className="error">{warning}</div>}
+        <Workload milestones={milestones} />
         <TimelineGantt startDate={drop.start_date} milestones={milestones} holds={holds} onWarning={setWarning} onMoved={onGateDrift} />
-        <h3>Holds (simulated: PayPal authorize not wired in this build)</h3>
+        <h3>Supplier holds (PayPal authorizations)</h3>
         <ul>
           {holds.map((h) => (
             <li key={h.id}>
               {h.milestone_title}: {money(h.amount_cents)} · <b>{h.status}</b>
-              {h.released_cents !== null && h.status !== 'held' && <> · released {money(h.released_cents)}</>}
-              <div className="muted" style={{ fontSize: 12 }}>{h.label}</div>
+              {h.status === 'pending' && h.approval_url && (
+                <> · <a href={h.approval_url}>approve on PayPal</a></>
+              )}
+              {h.released_cents !== null && h.status !== 'held' && h.status !== 'pending' && <> · released {money(h.released_cents)}</>}
+              <div className="muted" style={{ fontSize: 12 }}>
+                {h.paypal_authorization_id ? `PayPal authorization ${h.paypal_authorization_id}` : h.paypal_order_id ? `PayPal order ${h.paypal_order_id}` : h.label}
+              </div>
             </li>
           ))}
-          {holds.filter((h) => h.status === 'held').length === 0 && (
+          {holds.filter((h) => h.status === 'held' || h.status === 'pending').length === 0 && (
             <li className="muted">
               No active hold. <button onClick={() => placeHold('Ship')}>Place supplier hold on Ship</button>
             </li>
@@ -188,6 +222,7 @@ export default function DropPage() {
       <div className="card">
         <h2>Pick products</h2>
         <p className="muted">Select rows to add them to the pre-order.</p>
+        <SearchSets products={products} />
         <ProductGrid products={products} onSelectionChange={setSelected} />
         <div className="row" style={{ marginTop: 16 }}>
           <div className="total">Selected: {selected.length} · Total {money(total)}</div>
@@ -203,6 +238,11 @@ export default function DropPage() {
           </button>
         </div>
         <p className="muted"><Link to="/create">Plan another drop</Link></p>
+      </div>
+
+      <div className="card">
+        <h2>Price by product</h2>
+        <PriceChart products={products} />
       </div>
 
       <div className="card">

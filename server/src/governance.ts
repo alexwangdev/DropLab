@@ -151,7 +151,9 @@ export interface HoldRow {
   released_cents: number | null;
   paypal_authorization_id: string | null;
   label: string;
-  status: 'held' | 'captured' | 'voided';
+  paypal_order_id: string | null;
+  approval_url: string | null;
+  status: 'pending' | 'held' | 'captured' | 'voided';
   created_at: string;
   closed_at: string | null;
 }
@@ -160,18 +162,34 @@ function toHold(r: any): HoldRow {
   return { ...r, created_at: iso(r.created_at)!, closed_at: iso(r.closed_at) };
 }
 
+/** The live hold for a milestone: pending (awaiting buyer approval) or held. Voided and captured are history. */
 export async function activeHold(c: Db, dropId: string, milestone: string): Promise<HoldRow | undefined> {
-  const { rows } = await c.query("SELECT * FROM holds WHERE drop_id = $1 AND milestone_title = $2 AND status = 'held'", [dropId, milestone]);
+  const { rows } = await c.query("SELECT * FROM holds WHERE drop_id = $1 AND milestone_title = $2 AND status IN ('pending', 'held')", [dropId, milestone]);
   return rows[0] ? toHold(rows[0]) : undefined;
 }
 
-export async function insertHold(c: PoolClient, dropId: string, milestone: string, amountCents: number, label: string): Promise<HoldRow> {
+/** Simulated holds are inserted as held. Real holds are inserted as pending with their PayPal order id. */
+export async function insertHold(
+  c: PoolClient,
+  dropId: string,
+  milestone: string,
+  amountCents: number,
+  label: string,
+  opts: { id?: string; status?: 'pending' | 'held'; paypalOrderId?: string | null; approvalUrl?: string | null } = {},
+): Promise<HoldRow> {
   const { rows } = await c.query(
-    `INSERT INTO holds (id, drop_id, milestone_title, amount_cents, paypal_authorization_id, label, status)
-     VALUES ($1,$2,$3,$4,NULL,$5,'held') RETURNING *`,
-    [randomUUID(), dropId, milestone, amountCents, label],
+    `INSERT INTO holds (id, drop_id, milestone_title, amount_cents, paypal_authorization_id, paypal_order_id, approval_url, label, status)
+     VALUES ($1,$2,$3,$4,NULL,$5,$6,$7,$8) RETURNING *`,
+    [opts.id ?? randomUUID(), dropId, milestone, amountCents, opts.paypalOrderId ?? null, opts.approvalUrl ?? null, label, opts.status ?? 'held'],
   );
   return toHold(rows[0]);
+}
+
+/** Pending -> held: PayPal authorization id stored after the buyer approved and authorize succeeded. */
+/** Returns true only for the call that actually changed the row, so a repeated call writes no second ledger entry. */
+export async function markHoldAuthorized(c: PoolClient, id: string, authorizationId: string): Promise<boolean> {
+  const r = await c.query("UPDATE holds SET status = 'held', paypal_authorization_id = $2 WHERE id = $1 AND status = 'pending'", [id, authorizationId]);
+  return (r.rowCount ?? 0) > 0;
 }
 
 export async function closeHold(c: PoolClient, id: string, status: 'captured' | 'voided', capturedCents: number | null, releasedCents: number | null): Promise<void> {
