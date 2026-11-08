@@ -4,3 +4,4 @@ dist/
 server/.env
 client/.env
 *.log
+server/scripts/apimatic/.cache/

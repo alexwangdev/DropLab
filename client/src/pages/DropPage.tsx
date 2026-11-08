@@ -4,6 +4,7 @@ import { api_, apiF, money, type Drop, type Evaluation, type HoldRow, type Ledge
 import ProductGrid from '../components/ProductGrid';
 import TimelineGantt from '../components/TimelineGantt';
 import LedgerGrid from '../components/LedgerGrid';
+import PayoutChart, { type SplitRow } from '../components/PayoutChart';
 
 const badge = (v: string) =>
   v === 'Cleared' ? 'badge badge-cleared' : v === 'Hold' ? 'badge badge-hold' : 'badge badge-refused';
@@ -104,6 +105,8 @@ export default function DropPage() {
   if (!drop) return <p>Loading…</p>;
 
   const refused = evaluation?.verdict === 'Refused';
+  const lastPayout = [...ledger].reverse().find((e) => e.kind === 'payout');
+  const split = lastPayout ? ((lastPayout.detail as { splits?: SplitRow[] }).splits ?? null) : null;
   const hold = evaluation?.verdict === 'Hold';
 
   return (
@@ -191,6 +194,11 @@ export default function DropPage() {
           </button>
         </div>
         <p className="muted"><Link to="/create">Plan another drop</Link></p>
+      </div>
+
+      <div className="card">
+        <h2>Payout split</h2>
+        <PayoutChart split={split} batchRef={lastPayout?.paypal_ref ?? null} />
       </div>
 
       <div className="card">

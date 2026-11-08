@@ -1,12 +1,13 @@
 import { useMemo } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, type ColDef, type GridReadyEvent, type SelectionChangedEvent } from 'ag-grid-community';
-import { AllEnterpriseModule, LicenseManager } from 'ag-grid-enterprise';
+import { AllEnterpriseModule } from 'ag-grid-enterprise';
+import { droplabTheme } from '../theme';
 import type { Product } from '../api';
 import { money } from '../api';
 
-// Enterprise features (grouping, pivot, sidebar) run without a key locally; a watermark shows.
-// Set AG_GRID_LICENSE_KEY on the client only if you have a trial key (it is a public key, not a secret).
+// Enterprise features run on the trial watermark. TODO: call LicenseManager.setLicenseKey() here only once a
+// trial key has been requested and provided. No key is set in this repo yet.
 ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule]);
 
 interface Props {
@@ -36,8 +37,9 @@ export default function ProductGrid({ products, onSelectionChange }: Props) {
   );
 
   return (
-    <div className="ag-theme-quartz grid-wrap">
+    <div className="grid-wrap">
       <AgGridReact<Product>
+        theme={droplabTheme}
         rowData={products}
         columnDefs={columnDefs}
         defaultColDef={{ sortable: true, filter: true, resizable: true }}

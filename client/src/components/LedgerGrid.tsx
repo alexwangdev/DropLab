@@ -4,6 +4,8 @@ import { AllCommunityModule, ModuleRegistry, type ColDef, type ICellRendererPara
 import { AllEnterpriseModule } from 'ag-grid-enterprise';
 import type { LedgerEntry } from '../api';
 import { money } from '../api';
+import { droplabTheme } from '../theme';
+import { VerdictPill } from './VerdictPill';
 
 ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule]);
 
@@ -43,7 +45,7 @@ export default function LedgerGrid({ entries, chain, onVerify }: Props) {
       { field: 'actor', headerName: 'Actor', width: 110, enableRowGroup: true },
       { field: 'amount_cents', headerName: 'Amount', width: 110, valueFormatter: (p) => money(Number(p.value)) },
       { field: 'paypal_ref', headerName: 'PayPal ref', flex: 1.2, cellRenderer: PayPalRefCell },
-      { field: 'verdict', headerName: 'Verdict', width: 110 },
+      { field: 'verdict', headerName: 'Verdict', width: 120, cellRenderer: VerdictPill },
       { field: 'hash', headerName: 'Hash', width: 130, valueFormatter: (p) => String(p.value ?? '').slice(0, 12) },
     ],
     [],
@@ -56,8 +58,9 @@ export default function LedgerGrid({ entries, chain, onVerify }: Props) {
         {chain && chain.ok && <span className="badge badge-live">Chain verified: {chain.entries} entries</span>}
         {chain && !chain.ok && <span className="badge badge-broken">CHAIN BROKEN at #{chain.broken_at_seq}</span>}
       </div>
-      <div className="ag-theme-quartz grid-wrap" style={{ height: 320 }}>
+      <div className="grid-wrap" style={{ height: 320 }}>
         <AgGridReact<LedgerEntry>
+          theme={droplabTheme}
           rowData={entries}
           columnDefs={columnDefs}
           defaultColDef={{ sortable: true, filter: true, resizable: true }}

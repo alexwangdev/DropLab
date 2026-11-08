@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@bryntum/gantt-community": "8.0.0",
+    "ag-charts-enterprise": "^14.3.0",
     "ag-grid-community": "36.3.0",
     "ag-grid-enterprise": "^36.3.0",
     "ag-grid-react": "36.3.0",
