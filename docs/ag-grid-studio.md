@@ -31,3 +31,9 @@ Source: [AG Studio introduction](https://ag-grid.com/studio) and the [AG Studio 
 4. Then ask me to continue. I will install the exact package named in its docs and build the demo.
 
 If the trial needs a licence key, store it in `.env` as `AG_GRID_LICENSE_KEY` (or a new variable name the docs give) and tell me the variable name. The server returns it through `/api/client-config`, same as the existing keys.
+
+## Update: AG Studio key received, install not yet run
+
+- **Key received.** An AG Studio Pro evaluation key (`{AG_Studio_Pro}`, single application, evaluation only, deactivates **23 December 2026**). It is stored as `AG_STUDIO_LICENSE_KEY` in the repo-root `.env`, which git ignores, and the server returns it from `GET /api/client-config`. It is not in the repo.
+- **Packages found on npm.** `ag-studio` 3.1.0 ("AG Studio", commercial licence, homepage https://www.ag-grid.com/studio/) and `ag-studio-react` 3.1.0 ("AG Studio React Component", peer React 17–19, which this project meets with React 18).
+- **Install blocked.** Installing these two packages was denied by the sandbox's auto-mode classifier, so their exports and licence API have not been read yet. Nothing from Studio is in the app. Once the install is approved, the next steps are: read the exports and licence method, add the Studio demo, capture `docs/screenshots/ag-grid-studio.png`, and add the Studio moment to the video script.

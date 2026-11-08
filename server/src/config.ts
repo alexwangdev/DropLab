@@ -29,3 +29,4 @@ export const PAYPAL_BASE_URL = 'https://api-m.sandbox.paypal.com';
 // served to the client at startup from the server's environment, never from client source.
 export const AG_GRID_LICENSE_KEY = process.env.AG_GRID_LICENSE_KEY ?? '';
 export const BRYNTUM_LICENSE_KEY = process.env.BRYNTUM_LICENSE_KEY ?? '';
+export const AG_STUDIO_LICENSE_KEY = process.env.AG_STUDIO_LICENSE_KEY ?? '';

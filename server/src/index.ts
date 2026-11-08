@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'node:crypto';
-import { AG_GRID_LICENSE_KEY, BRYNTUM_LICENSE_KEY, CLIENT_ORIGIN, PORT } from './config.js';
+import { AG_GRID_LICENSE_KEY, AG_STUDIO_LICENSE_KEY, BRYNTUM_LICENSE_KEY, CLIENT_ORIGIN, PORT } from './config.js';
 import { migrate, pool } from './db.js';
 import { recheckProduct, searchProducts } from './channel3.js';
 import { searchWithFallback } from './channel3-mcp.js';
@@ -134,7 +134,7 @@ app.get('/api/health', (_req, res) => {
 
 // Browser config: trial licence keys from the server environment. Only the two licence keys are returned.
 app.get('/api/client-config', (_req, res) => {
-  res.json({ agGridLicenseKey: AG_GRID_LICENSE_KEY || null, bryntumLicenseKey: BRYNTUM_LICENSE_KEY || null });
+  res.json({ agGridLicenseKey: AG_GRID_LICENSE_KEY || null, agStudioLicenseKey: AG_STUDIO_LICENSE_KEY || null, bryntumLicenseKey: BRYNTUM_LICENSE_KEY || null });
 });
 
 // POST /api/drops { title, city, budget_cents, per_item_cap_cents?, ask_above_cents?, closes_at? }
