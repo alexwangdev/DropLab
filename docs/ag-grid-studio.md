@@ -37,3 +37,13 @@ If the trial needs a licence key, store it in `.env` as `AG_GRID_LICENSE_KEY` (o
 - **Key received.** An AG Studio Pro evaluation key (`{AG_Studio_Pro}`, single application, evaluation only, deactivates **23 December 2026**). It is stored as `AG_STUDIO_LICENSE_KEY` in the repo-root `.env`, which git ignores, and the server returns it from `GET /api/client-config`. It is not in the repo.
 - **Packages found on npm.** `ag-studio` 3.1.0 ("AG Studio", commercial licence, homepage https://www.ag-grid.com/studio/) and `ag-studio-react` 3.1.0 ("AG Studio React Component", peer React 17–19, which this project meets with React 18).
 - **Install blocked.** Installing these two packages was denied by the sandbox's auto-mode classifier, so their exports and licence API have not been read yet. Nothing from Studio is in the app. Once the install is approved, the next steps are: read the exports and licence method, add the Studio demo, capture `docs/screenshots/ag-grid-studio.png`, and add the Studio moment to the video script.
+
+## Update: AG Studio installed and built into the app
+
+- **Installed (approved):** `ag-studio` 3.1.0 (commercial) and `ag-studio-react` 3.1.0. Both are in `client/package.json`.
+- **Verified API (from the installed typings):** `AgStudio` React component (`data`, `mode="edit"`); `AgStudioLicenseManager.setLicenseKey()` from `ag-studio`; the data option takes `{ sources: [{ id, data: [...] }] }`.
+- **Licence:** `AG_STUDIO_LICENSE_KEY` in `.env`, served by `/api/client-config`, applied at startup in `client/src/license.ts`. The key is evaluation only, single application, and deactivates **23 December 2026**.
+- **Built:** the page `/drop/:id/studio` (`client/src/pages/StudioPage.tsx`) loads the drop's real Channel3 products and ledger rows into two Studio data sources and renders the Studio editor in `edit` mode. A link on the Drop page opens it.
+- **Screenshot:** `docs/screenshots/ag-grid-studio.png` shows the editor with both data sources and the widget palette.
+- **Not done:** the dashboard has no pre-built widgets, so the canvas is empty. Analysts add widgets by dragging fields. I did not write a pre-built report, because that needs Studio's page and widget state format, which I haven't verified.
+- **Not in the data:** costs and margins. The data has only prices, stock and ledger amounts, so Studio charts only those.

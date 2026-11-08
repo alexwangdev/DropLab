@@ -1,5 +1,6 @@
 import { LicenseManager } from 'ag-grid-enterprise';
 import { LicenseManager as ChartsLicenseManager } from 'ag-charts-enterprise';
+import { AgStudioLicenseManager } from 'ag-studio';
 
 // Trial licence keys come from the server's environment (AG_GRID_LICENSE_KEY and BRYNTUM_LICENSE_KEY
 // in the repo-root .env). The server returns them from GET /api/client-config. They are public trial
@@ -10,6 +11,7 @@ import { LicenseManager as ChartsLicenseManager } from 'ag-charts-enterprise';
 
 export interface ClientConfig {
   agGridLicenseKey: string | null;
+  agStudioLicenseKey: string | null;
   bryntumLicenseKey: string | null;
 }
 
@@ -24,6 +26,10 @@ export function applyLicenses(cfg: ClientConfig): void {
   if (cfg.agGridLicenseKey) {
     LicenseManager.setLicenseKey(cfg.agGridLicenseKey);
     ChartsLicenseManager.setLicenseKey(cfg.agGridLicenseKey);
+  }
+  // AG Studio Pro evaluation key (single application, deactivates 23 December 2026).
+  if (cfg.agStudioLicenseKey) {
+    AgStudioLicenseManager.setLicenseKey(cfg.agStudioLicenseKey);
   }
   if (cfg.bryntumLicenseKey) {
     (globalThis as any).bryntum = (globalThis as any).bryntum ?? {};

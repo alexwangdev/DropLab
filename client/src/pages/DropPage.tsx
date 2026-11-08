@@ -148,6 +148,7 @@ export default function DropPage() {
           {seeded && <> · <span className="badge badge-seed">SEED DEMO DATA (Channel3 unavailable)</span></>}
           {!seeded && <> · <span className="badge badge-live">Live Channel3 results</span></>}
         </p>
+        <p><Link to={`/drop/${id}/studio`}>Open the AG Studio dashboard for this drop</Link></p>
         {drop.plan_text && <p><b>Plan:</b> {drop.plan_text}</p>}
       </div>
 
