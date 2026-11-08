@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { AgStudio } from 'ag-studio-react';
+import { enableStudioDevValidations } from 'ag-studio';
 import { api_, apiF, type LedgerEntry, type Product } from '../api';
+import { buildDashboardState, productRows } from '../studio-dashboard';
 
 /**
  * AG Studio dashboard (edit mode) built on this drop's real data:
@@ -9,12 +11,14 @@ import { api_, apiF, type LedgerEntry, type Product } from '../api';
  * - ledger: every money decision on this drop (kind, actor, USD amount, verdict)
  * Nothing here is invented. Costs and margins are not in the data, so Studio cannot show them.
  */
+// Development only: shows the exact configuration problem in the console (see Studio docs).
+enableStudioDevValidations();
+
 export default function StudioPage() {
   const { id = '' } = useParams();
   const [products, setProducts] = useState<Product[] | null>(null);
   const [ledger, setLedger] = useState<LedgerEntry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
     Promise.all([api_.getDrop(id), apiF.ledger(id)])
       .then(([d, l]) => {
@@ -52,6 +56,12 @@ export default function StudioPage() {
     [products, ledger],
   );
 
+  // Pre-built dashboard: read once when Studio starts, so it is built from the loaded products.
+  const initialState = useMemo(() => buildDashboardState(), []);
+
+  // View mode shows the finished dashboard. ?mode=edit opens the Studio editor on the same state.
+  const mode = new URLSearchParams(window.location.search).get("mode") === "edit" ? "edit" : "view";
+
   if (error) return <div className="error">{error}</div>;
   if (!products || !ledger) return <p>Loading…</p>;
 
@@ -62,7 +72,7 @@ export default function StudioPage() {
         Built in AG Studio from this drop&apos;s live data: products and ledger rows. <Link to={`/drop/${id}`}>Back to the drop</Link>
       </p>
       <div style={{ height: 720, width: '100%' }}>
-        <AgStudio data={data} mode="edit" />
+        <AgStudio data={data} mode={mode} initialState={initialState as any} />
       </div>
     </div>
   );
