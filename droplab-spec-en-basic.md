@@ -114,6 +114,11 @@ No Python. No other language. Frontend never calls PayPal, Channel3, or the LLM 
 4. **Pay (1:50–2:30):** PayPal sandbox checkout (buyer test account). One order, one capture. Show the PayPal order ID and capture ID on screen.
 5. **Split (2:30–2:55):** Payouts batch splits the capture: e.g. 70% creator, 20% supplier, 10% platform fee. Show the Payouts batch ID + per-recipient status. End card: total, profit, timeline.
 
+**Refusal beat (added 60 seconds, shot right after the timeline; full clicks in `docs/demo-refusals.md`):**
+- **0:00–0:20 Mandate refusal:** set the budget to $10 and pick the $18 tote. The Mandate card shows a red **Refused** verdict with the numbers, and checkout is disabled. The server returns 409 `mandate_refused`.
+- **0:20–0:40 Price moved:** a Channel3 price moves between plan and checkout. The gate re-opens (409) and no PayPal call is made. The buyer must re-approve the new total.
+- **0:40–1:00 Ledger:** the Ledger grid shows each decision with real PayPal IDs. "Verify chain" passes, and one edited row shows a red "CHAIN BROKEN at #N" badge.
+
 If any live call fails during the video, show the seeded demo drop — do not fake a PayPal ID.
 
 ---

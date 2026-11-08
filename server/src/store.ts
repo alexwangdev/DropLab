@@ -195,6 +195,39 @@ export async function getPayoutForOrder(orderId: string): Promise<PayoutRecord |
   return rows[0] ? toPayout(rows[0]) : undefined;
 }
 
+// Transaction-aware writes: used together with governance.appendLedger in one BEGIN/COMMIT.
+type Client = import('pg').PoolClient;
+
+export async function saveOrderTx(c: Client, o: Order): Promise<void> {
+  await c.query(
+    `INSERT INTO orders (paypal_order_id, drop_id, items, total_cents, currency, status, paypal_capture_id, capture_request_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [o.paypal_order_id, o.drop_id, JSON.stringify(o.items), o.total_cents, o.currency, o.status, o.paypal_capture_id, o.capture_request_id, o.created_at],
+  );
+}
+
+export async function updateOrderTx(c: Client, paypalOrderId: string, fields: { status?: string; paypal_capture_id?: string | null; capture_request_id?: string | null }): Promise<void> {
+  await c.query(
+    `UPDATE orders SET status = COALESCE($2, status),
+       paypal_capture_id = COALESCE($3, paypal_capture_id),
+       capture_request_id = COALESCE($4, capture_request_id)
+     WHERE paypal_order_id = $1`,
+    [paypalOrderId, fields.status ?? null, fields.paypal_capture_id ?? null, fields.capture_request_id ?? null],
+  );
+}
+
+export async function savePayoutTx(c: Client, p: PayoutRecord): Promise<void> {
+  await c.query(
+    `INSERT INTO payouts (batch_id, order_id, request_id, items, created_at) VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (batch_id) DO NOTHING`,
+    [p.batch_id, p.order_id, p.request_id, JSON.stringify(p.items), p.created_at],
+  );
+}
+
+export async function markMilestonePaidTx(c: Client, dropId: string, title: string): Promise<void> {
+  await c.query("UPDATE milestones SET paypal_status = 'paid' WHERE drop_id = $1 AND title = $2", [dropId, title]);
+}
+
 // --- row mappers: pg returns timestamps as Date and numeric ids as strings; normalise here ---
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : String(v));
 

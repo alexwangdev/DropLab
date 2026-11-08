@@ -7,6 +7,8 @@ interface Props {
   startDate: string; // YYYY-MM-DD, Day 0
   milestones: Milestone[];
   onWarning?: (message: string) => void;
+  /** Called after a drag with the names of milestones whose start date changed (cascade included). */
+  onMoved?: (milestoneTitles: string[]) => void;
 }
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -15,10 +17,12 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10);
  * Bryntum Gantt (Community tier). Drag a task and its dependent tasks move with it.
  * When the Payout milestone moves, we raise a warning for the UI.
  */
-export default function TimelineGantt({ startDate, milestones, onWarning }: Props) {
+export default function TimelineGantt({ startDate, milestones, onWarning, onMoved }: Props) {
   const host = useRef<HTMLDivElement>(null);
   const warn = useRef(onWarning);
   warn.current = onWarning;
+  const moved = useRef(onMoved);
+  moved.current = onMoved;
 
   useEffect(() => {
     if (!host.current) return;
@@ -57,6 +61,7 @@ export default function TimelineGantt({ startDate, milestones, onWarning }: Prop
     };
     // Last known Payout date; after each drop, a changed date raises the warning.
     let lastPayout: string | null = null;
+    const startsByName = new Map<string, string>();
 
     const gantt = new Gantt({
       appendTo: host.current,
@@ -71,10 +76,24 @@ export default function TimelineGantt({ startDate, milestones, onWarning }: Prop
             warn.current?.(`Payout moved from ${lastPayout} to ${after}. Check payout timing with suppliers and buyers.`);
           }
           lastPayout = after;
+          // Report every milestone whose start changed, so holds can be voided and re-booked.
+          const changed: string[] = [];
+          source.taskStore.forEach((t: any) => {
+            const now = t.startDate ? isoDay(new Date(t.startDate)) : null;
+            if (now && startsByName.get(t.name) !== now) {
+              if (startsByName.has(t.name)) changed.push(t.name);
+              startsByName.set(t.name, now);
+            }
+          });
+          if (changed.length) moved.current?.(changed);
         },
       },
     });
     lastPayout = payoutStart(gantt);
+    startsByName.clear();
+    gantt.taskStore.forEach((t: any) => {
+      if (t.startDate) startsByName.set(t.name, isoDay(new Date(t.startDate)));
+    });
 
     return () => {
       gantt.destroy();

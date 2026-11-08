@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { api_, ApiError, money, type PayoutItem, type Product } from '../api';
+import { api_, apiF, ApiError, money, type PayoutItem, type Product } from '../api';
 
-type Stage = 'review' | 'redirecting' | 'capturing' | 'done' | 'cancelled' | 'error';
+type Stage = 'review' | 'redirecting' | 'capturing' | 'done' | 'cancelled' | 'error' | 'gate';
 
 interface Captured {
   paypal_order_id: string;
@@ -59,7 +59,29 @@ export default function CheckoutPage() {
   });
   const total = lines.reduce((s, l) => s + (l.product?.price_cents ?? 0) * l.qty, 0);
 
+  // F2: the gate runs before any PayPal call. A reopened gate never silently uses the new price.
   async function onPay() {
+    setError(null);
+    setPriceChanges([]);
+    setStage('redirecting');
+    try {
+      await apiF.gateCheck(id, items);
+    } catch (e) {
+      if (e instanceof ApiError && (e.body as any)?.gate === 'reopened') {
+        setPriceChanges((e.body as any).changes);
+        setError('Live price or stock changed. Review the new total and re-approve before paying.');
+        setStage('gate');
+        return;
+      }
+      setError((e as Error).message);
+      setStage('error');
+      return;
+    }
+    await createOrderNow();
+  }
+
+  /** Called after the gate is clear, or after the buyer re-approves the new total. */
+  async function createOrderNow() {
     setError(null);
     setStage('redirecting');
     try {
@@ -67,12 +89,27 @@ export default function CheckoutPage() {
       if (!order.approval_url) throw new Error(`PayPal did not return an approval URL (status ${order.status})`);
       window.location.href = order.approval_url;
     } catch (e) {
-      if (e instanceof ApiError && Array.isArray((e.body as any)?.changes)) {
-        setPriceChanges((e.body as any).changes);
-        setError(e.message);
+      if (e instanceof ApiError && (e.body as any)?.error === 'approval_required') {
+        setError('This plan needs the organiser to approve it on the drop page first.');
+      } else if (e instanceof ApiError && (e.body as any)?.error === 'approval_invalidated') {
+        setError('The approved plan changed. Re-approve the current total before paying.');
+      } else if (e instanceof ApiError && (e.body as any)?.error === 'mandate_refused') {
+        setError('The mandate refuses this plan. Change the selection on the drop page.');
       } else {
         setError((e as Error).message);
       }
+      setStage('error');
+    }
+  }
+
+  // Re-approval of the new total: re-runs the mandate evaluate + approve on the current selection, then pays.
+  async function onReapprove() {
+    setError(null);
+    try {
+      await apiF.approve(id, items);
+      await createOrderNow();
+    } catch (e) {
+      setError((e as Error).message);
       setStage('error');
     }
   }
@@ -150,13 +187,15 @@ export default function CheckoutPage() {
       )}
       {priceChanges.length > 0 && (
         <div className="error">
-          Live prices changed:
+          Live prices changed. The new total is not used until you re-approve it:
           <ul>
             {priceChanges.map((c) => (
               <li key={c.title}>{c.title}: {money(c.old_cents)} → {c.new_cents === null ? 'out of stock' : money(c.new_cents)}</li>
             ))}
           </ul>
-          Go back, review the selection, and try again.
+          {stage === 'gate' && (
+            <div><button onClick={onReapprove}>Review new total and re-approve</button></div>
+          )}
         </div>
       )}
       {error && priceChanges.length === 0 && <div className="error">{error}</div>}

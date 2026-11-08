@@ -48,6 +48,90 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return json as T;
 }
 
+export type Verdict = 'Cleared' | 'Hold' | 'Refused';
+
+export interface RuleFired {
+  rule: 'over_budget' | 'over_item_cap' | 'needs_approval' | 'past_close';
+  verdict: 'Hold' | 'Refused';
+  expected_cents: number | null;
+  actual_cents: number;
+  product_id?: string;
+}
+
+export interface MandateRow {
+  drop_id: string;
+  budget_cents: number;
+  per_item_cap_cents: number;
+  ask_above_cents: number;
+  closes_at: string | null;
+  status: 'draft' | 'approved' | 'invalidated';
+  plan_hash: string | null;
+  plan_total_cents: number | null;
+  approved_at: string | null;
+}
+
+export interface Evaluation {
+  verdict: Verdict;
+  rules_fired: RuleFired[];
+  total_cents: number;
+  plan_hash: string;
+  approval_status: string;
+}
+
+export interface GateChange {
+  product_id: string;
+  title: string;
+  old_cents: number;
+  new_cents: number | null;
+  drift_pct: number;
+}
+
+export interface LedgerEntry {
+  id: string;
+  drop_id: string;
+  seq: number;
+  prev_hash: string;
+  hash: string;
+  kind: string;
+  actor: string;
+  amount_cents: number;
+  paypal_ref: string | null;
+  verdict: string | null;
+  detail: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface HoldRow {
+  id: string;
+  drop_id: string;
+  milestone_title: string;
+  amount_cents: number;
+  captured_cents: number | null;
+  released_cents: number | null;
+  label: string;
+  status: 'held' | 'captured' | 'voided';
+}
+
+export const apiF = {
+  getMandate: (dropId: string) => api<MandateRow>(`/drops/${dropId}/mandate`),
+  setMandate: (dropId: string, body: { budget_cents: number; per_item_cap_cents: number; ask_above_cents: number; closes_at: string | null }) =>
+    api<MandateRow>(`/drops/${dropId}/mandate`, { method: 'POST', body: JSON.stringify(body) }),
+  evaluate: (dropId: string, items: { product_id: string; qty: number }[]) =>
+    api<Evaluation>(`/drops/${dropId}/mandate/evaluate`, { method: 'POST', body: JSON.stringify({ items }) }),
+  approve: (dropId: string, items: { product_id: string; qty: number }[]) =>
+    api<{ status: string; verdict: Verdict; plan_hash: string; plan_total_cents: number }>(`/drops/${dropId}/mandate/approve`, {
+      method: 'POST',
+      body: JSON.stringify({ items }),
+    }),
+  gateCheck: (dropId: string, items: { product_id: string; qty: number }[]) =>
+    api<{ gate: 'cleared'; total_cents: number; changes: GateChange[] }>(`/drops/${dropId}/gate/check`, { method: 'POST', body: JSON.stringify({ items }) }),
+  ledger: (dropId: string) => api<LedgerEntry[]>(`/drops/${dropId}/ledger`),
+  verifyLedger: (dropId: string) => api<{ ok: boolean; entries: number; broken_at_seq: number | null }>(`/drops/${dropId}/ledger/verify`),
+  holds: (dropId: string) => api<HoldRow[]>(`/drops/${dropId}/holds`),
+  rebookHold: (dropId: string, milestone_title: string) =>
+    api<{ voided: string | null; hold: HoldRow }>(`/drops/${dropId}/holds/rebook`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
+};
+
 export interface PayoutItem {
   sender_item_id: string;
   role: string;
@@ -69,7 +153,7 @@ export const api_ = {
   createDrop: (body: { title: string; city: string; budget_cents: number }) =>
     api<Drop>('/drops', { method: 'POST', body: JSON.stringify(body) }),
   getDrop: (id: string) =>
-    api<{ drop: Drop; products: Product[]; milestones: Milestone[] }>(`/drops/${id}`),
+    api<{ drop: Drop; products: Product[]; milestones: Milestone[]; mandate: MandateRow | null; holds: HoldRow[] }>(`/drops/${id}`),
   plan: (id: string, query: string, prompt: string) =>
     api<{ source: 'llm' | 'channel3' | 'seed'; error: string | null; plan_text: string | null; trace: string[]; products: Product[]; milestones: Milestone[] }>(
       `/drops/${id}/plan`,

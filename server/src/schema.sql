@@ -57,3 +57,63 @@ CREATE TABLE IF NOT EXISTS payouts (
   created_at    timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS payouts_order_uidx ON payouts(order_id);
+
+-- F1: drop mandate (one per drop). Approval binds the exact plan via plan_hash.
+CREATE TABLE IF NOT EXISTS mandates (
+  id                 uuid PRIMARY KEY,
+  drop_id            uuid NOT NULL UNIQUE REFERENCES drops(id) ON DELETE CASCADE,
+  budget_cents       integer NOT NULL CHECK (budget_cents >= 0),
+  per_item_cap_cents integer NOT NULL CHECK (per_item_cap_cents >= 0),
+  ask_above_cents    integer NOT NULL CHECK (ask_above_cents >= 0),
+  closes_at          text,                 -- YYYY-MM-DD or NULL
+  status             text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft', 'approved', 'invalidated')),
+  plan_hash          text,
+  plan_total_cents   integer,
+  approved_at        timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+-- F1: every mandate evaluation (verdict + each fired rule).
+CREATE TABLE IF NOT EXISTS mandate_checks (
+  id             uuid PRIMARY KEY,
+  drop_id        uuid NOT NULL REFERENCES drops(id) ON DELETE CASCADE,
+  verdict        text NOT NULL,
+  rule           text,
+  expected_cents integer,
+  actual_cents   integer NOT NULL,
+  created_at     timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS mandate_checks_drop_idx ON mandate_checks(drop_id);
+
+-- F4: hash-chained ledger. seq is gapless per drop; hash covers prev_hash and the entry.
+CREATE TABLE IF NOT EXISTS ledger_entries (
+  id           uuid PRIMARY KEY,
+  drop_id      uuid NOT NULL REFERENCES drops(id) ON DELETE CASCADE,
+  seq          integer NOT NULL,
+  prev_hash    text NOT NULL,
+  hash         text NOT NULL,
+  kind         text NOT NULL,
+  actor        text NOT NULL,
+  amount_cents integer NOT NULL,
+  paypal_ref   text,
+  verdict      text,
+  detail       jsonb NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (drop_id, seq)
+);
+
+-- F3: holds on Gantt milestones. paypal_authorization_id stays NULL unless a real PayPal authorization exists.
+CREATE TABLE IF NOT EXISTS holds (
+  id                       uuid PRIMARY KEY,
+  drop_id                  uuid NOT NULL REFERENCES drops(id) ON DELETE CASCADE,
+  milestone_title          text NOT NULL,
+  amount_cents             integer NOT NULL CHECK (amount_cents >= 0),
+  captured_cents           integer,
+  released_cents           integer,
+  paypal_authorization_id  text,
+  label                    text NOT NULL,
+  status                   text NOT NULL CHECK (status IN ('held', 'captured', 'voided')),
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  closed_at                timestamptz
+);
+CREATE INDEX IF NOT EXISTS holds_drop_idx ON holds(drop_id);

@@ -13,6 +13,10 @@ button:disabled { background: #9aa4b2; cursor: not-allowed; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .badge-live { background: #d7f5e3; color: #0a6b3a; }
 .badge-seed { background: #fde9c7; color: #8a4b00; }
+.badge-broken { background: #fbd5d5; color: #8a1c1c; }
+.badge-cleared { background: #d7f5e3; color: #0a6b3a; }
+.badge-hold { background: #fdeccb; color: #7a4a00; }
+.badge-refused { background: #fbd5d5; color: #8a1c1c; }
 .error { background: #fdecec; color: #8a1c1c; padding: 10px 12px; border-radius: 6px; margin: 12px 0; font-size: 14px; white-space: pre-wrap; }
 .muted { color: #5b6473; font-size: 14px; }
 .total { font-size: 20px; font-weight: 700; }
