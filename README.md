@@ -46,7 +46,7 @@ Keys go in the root `.env` (or `server/.env`), never in `client/`, never with a 
 |---|---|---|
 | **Channel3** | Product search (`POST /v1/search`) for the plan. Live price and stock re-check (`GET /v1/products/{id}`) at the gate, before any order. | `server/src/channel3.ts` · [mandate and timeline screenshot](docs/screenshots/mandate-ledger.png) |
 | **Bryntum** | Live Gantt (`@bryntum/gantt-community`) with dependencies, lags, drag cascade, a Payout-moved warning, and hold rebooking on move. | `client/src/components/TimelineGantt.tsx` · [screenshot](docs/screenshots/mandate-ledger.png) |
-| **AG Grid / AG Studio** | AG Grid Enterprise product grid (grouping by retailer, summed prices, sidebar pivot) and the hash-chained ledger grid. Runs with the trial watermark. | `client/src/components/ProductGrid.tsx`, `LedgerGrid.tsx` · [drop page](docs/screenshots/drop-page.png) |
+| **AG Grid / AG Studio** | AG Grid Enterprise: product grid (grouping by retailer, summed prices, sidebar pivot), the hash-chained ledger grid with a verdict pill renderer, and an integrated pie chart of the real payout split. One shared theme for every grid. Licensed with an AG Grid and AG Charts Enterprise trial key (evaluation only). | `client/src/components/ProductGrid.tsx`, `LedgerGrid.tsx`, `PayoutChart.tsx`, `theme.ts`, `license.ts` · [chart screenshot](docs/screenshots/ag-grid-chart.png) |
 | **APIMatic** | PayPal context plugin in Claude Code. The spec-driven trace shows the model building an Orders v2 request from PayPal's official OpenAPI schema. | [docs/apimatic-trace.md](docs/apimatic-trace.md) · `server/scripts/paypal-orders-trace.ts` |
 | **Render** | `render.yaml` blueprint: static site, API web service, Postgres, and a daily Channel3 price re-check cron. **Not deployed.** | [render.yaml](render.yaml) |
 | **PayPal** | Orders v2 create and capture (sandbox), Payouts v1 batch split and status. | `server/src/paypal.ts` · [checkout screenshot](docs/screenshots/checkout-payout.png) |
@@ -103,6 +103,7 @@ APIMatic trace: [docs/apimatic-trace.md](docs/apimatic-trace.md), passed on atte
 
 ## Known limits
 
+- **AG Grid trial key:** evaluation only, single application. It deactivates on 8 December 2026, but judging runs to 15 December 2026. Request an extension or a production key before then. Production use is not permitted under this key.
 - **Holds are simulated.** The PayPal Orders v2 `authorize` call is in the spec, and the capture and void endpoints are confirmed in PayPal's docs (`/v2/payments/authorizations/{id}/capture` and `/void`). Each hold would need its own buyer approval. That flow is not wired in this build, so holds are labelled "Simulated hold" in the UI and the database, and no PayPal authorization ID is recorded.
 - **Hold capture amount:** it is 20% of completed sales, capped at the held amount (server math). It is not a real PayPal capture.
 - **Gantt bar labels:** hold status shows in a list under the Gantt, not on the bars.

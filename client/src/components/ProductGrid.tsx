@@ -6,8 +6,6 @@ import { droplabTheme } from '../theme';
 import type { Product } from '../api';
 import { money } from '../api';
 
-// Enterprise features run on the trial watermark. TODO: call LicenseManager.setLicenseKey() here only once a
-// trial key has been requested and provided. No key is set in this repo yet.
 ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule]);
 
 interface Props {
