@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import { AllCommunityModule, ModuleRegistry, type ColDef, type ICellRendererParams } from 'ag-grid-community';
 import { AllEnterpriseModule } from 'ag-grid-enterprise';
@@ -37,6 +37,24 @@ interface Props {
 }
 
 export default function LedgerGrid({ entries, chain, onVerify }: Props) {
+  // W-A: only entries that arrive after the page loaded slide in, and only the newest one.
+  const baseline = useRef<number | null>(null);
+  if (baseline.current === null && entries.length > 0) baseline.current = Math.max(...entries.map((e) => e.seq));
+  const newest = entries.length ? Math.max(...entries.map((e) => e.seq)) : 0;
+  // W-A verify: spinner while the chain is checked, then a check mark.
+  const [verifying, setVerifying] = useState(false);
+  const [verified, setVerified] = useState(false);
+  function onVerifyClick() {
+    setVerified(false);
+    setVerifying(true);
+    Promise.resolve(onVerify()).finally(() => {
+      setTimeout(() => {
+        setVerifying(false);
+        setVerified(true);
+      }, 300);
+    });
+  }
+
   const columnDefs = useMemo<ColDef<LedgerEntry>[]>(
     () => [
       { field: 'seq', headerName: '#', width: 80, sort: 'asc' },
@@ -54,7 +72,9 @@ export default function LedgerGrid({ entries, chain, onVerify }: Props) {
   return (
     <div>
       <div className="row" style={{ marginBottom: 12 }}>
-        <button onClick={onVerify}>Verify chain</button>
+        <button onClick={onVerifyClick} disabled={verifying}>Verify chain</button>
+        {verifying && <span className="spinner" aria-label="verifying" />}
+        {!verifying && verified && <span className="check-in">✓</span>}
         {chain && chain.ok && <span className="badge badge-live">Chain verified: {chain.entries} entries</span>}
         {chain && !chain.ok && <span className="badge badge-broken">CHAIN BROKEN at #{chain.broken_at_seq}</span>}
       </div>
@@ -67,6 +87,7 @@ export default function LedgerGrid({ entries, chain, onVerify }: Props) {
           sideBar={{ toolPanels: ['columns', 'filters'] }}
           rowGroupPanelShow="always"
           getRowId={(p) => p.data.id}
+          getRowClass={(p) => (p.data && p.data.seq === newest && baseline.current !== null && newest > baseline.current ? 'ledger-new' : undefined)}
         />
       </div>
     </div>

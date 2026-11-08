@@ -7,7 +7,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "test": "node --import tsx --test test/rules.test.ts test/negotiate.test.ts test/routes.test.ts test/channel3-mcp.test.ts",
+    "test": "node --import tsx --test test/rules.test.ts test/negotiate.test.ts test/routes.test.ts test/channel3-mcp.test.ts test/waterfall.test.ts test/substitute.test.ts test/evidence.test.ts",
     "verify": "tsx scripts/verify.ts",
     "trace:all": "tsx scripts/apimatic-trace-all.ts",
     "trace": "tsx scripts/apimatic-trace-all.ts"

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 import './styles.css';
+import './animations.css';
 import { applyLicenses, loadClientConfig } from './license';
 
 // Licences first, then the app. The App import is dynamic so the Gantt and grid libraries load

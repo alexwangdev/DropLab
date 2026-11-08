@@ -22,3 +22,39 @@ button:disabled { background: #9aa4b2; cursor: not-allowed; }
 .total { font-size: 20px; font-weight: 700; }
 .grid-wrap { height: 340px; width: 100%; }
 .gantt-wrap { height: 300px; width: 100%; }
+
+/* W-1 storefront (phone width) */
+.store { max-width: 420px; margin: 0 auto; }
+.store-head { background: #fff; border-radius: 10px; padding: 18px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }
+.store-head h1 { margin: 0 0 4px; font-size: 22px; }
+.countdown { display: flex; justify-content: space-between; align-items: baseline; margin: 12px 0; }
+.countdown-value { font-variant-numeric: tabular-nums; font-size: 22px; font-weight: 700; }
+.countdown-label { color: #5b6473; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; }
+.sell-through-text { font-size: 15px; margin-bottom: 6px; }
+.sell-through-track { height: 10px; background: #e6e9ef; border-radius: 999px; overflow: hidden; }
+.sell-through-fill { height: 100%; background: #0070ba; transform-origin: left center; transform: scaleX(0); }
+.store-products { list-style: none; padding: 0; margin: 0; }
+.store-card { display: flex; gap: 12px; align-items: center; background: #fff; border-radius: 10px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 12px; flex-wrap: wrap; }
+.store-thumb { width: 72px; height: 72px; object-fit: contain; border-radius: 8px; background: #f3f5f8; flex: 0 0 72px; }
+.store-thumb-empty { display: flex; align-items: center; justify-content: center; color: #9aa4b2; font-size: 11px; }
+.store-card-body { flex: 1; min-width: 0; }
+.store-card-title { font-weight: 600; }
+.store-price { font-size: 18px; font-weight: 700; margin-top: 4px; }
+.store-reserve { width: 100%; }
+.store-foot { text-align: center; }
+.joined h1 { margin-top: 0; }
+
+/* Money waterfall (W-2) */
+.waterfall { margin-top: 8px; }
+.waterfall-total { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 4px; }
+.waterfall-total-amount { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.waterfall-streams { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.waterfall-buckets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 8px; }
+.waterfall-bucket { text-align: center; min-width: 0; }
+.waterfall-column { position: relative; height: 120px; background: #eef2f7; border-radius: 8px; overflow: hidden; }
+.waterfall-pending .waterfall-column { background: transparent; border: 2px dashed #9aa4b2; }
+.waterfall-fill { position: absolute; left: 0; right: 0; bottom: 0; top: 0; background: #0070ba; }
+.waterfall-label { font-weight: 600; margin-top: 6px; font-size: 14px; }
+.waterfall-amount { font-variant-numeric: tabular-nums; }
+.waterfall-pending .waterfall-amount { color: #5b6473; font-size: 13px; }
+.waterfall-batch { font-size: 11px; word-break: break-all; color: #5b6473; }

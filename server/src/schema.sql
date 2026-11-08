@@ -132,3 +132,8 @@ ALTER TABLE holds ADD CONSTRAINT holds_status_check CHECK (status IN ('pending',
 
 -- Q-E: approval link for a pending hold (PayPal order approve URL from the API, never constructed).
 ALTER TABLE holds ADD COLUMN IF NOT EXISTS approval_url text;
+
+-- W-1: buyer storefront capacity. Sell-through is counted from captured (COMPLETED) orders, never from the client.
+ALTER TABLE drops ADD COLUMN IF NOT EXISTS capacity integer NOT NULL DEFAULT 50;
+ALTER TABLE drops DROP CONSTRAINT IF EXISTS drops_capacity_check;
+ALTER TABLE drops ADD CONSTRAINT drops_capacity_check CHECK (capacity BETWEEN 1 AND 500);

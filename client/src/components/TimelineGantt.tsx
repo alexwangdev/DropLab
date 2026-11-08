@@ -12,6 +12,8 @@ interface Props {
   onMoved?: (milestoneTitles: string[]) => void;
   /** Holds from the server. Shown on each milestone bar. */
   holds?: HoldRow[];
+  /** Milestone titles to show red (W-4: a planned product went out of stock or moved in price). */
+  alerts?: string[];
 }
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10);
@@ -28,8 +30,15 @@ function holdTag(h: HoldRow): string {
   return 'simulated';
 }
 
-export default function TimelineGantt({ startDate, milestones, onWarning, onMoved, holds = NO_HOLDS }: Props) {
+const NO_ALERTS: string[] = [];
+
+export default function TimelineGantt({ startDate, milestones, onWarning, onMoved, holds = NO_HOLDS, alerts = NO_ALERTS }: Props) {
   const host = useRef<HTMLDivElement>(null);
+  // W-4: the chart is built once per start date. Later data (holds, paid status, alerts) patches the
+  // existing task records in place, so a poll never rebuilds the Gantt or drops an edit in progress.
+  const ganttRef = useRef<Gantt | null>(null);
+  const holdsNow = useRef(holds);
+  holdsNow.current = holds;
   const warn = useRef(onWarning);
   warn.current = onWarning;
   const moved = useRef(onMoved);
@@ -114,7 +123,7 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       ],
       // Hold status drawn on the bar itself (Community taskRenderer). Simulated holds are labelled.
       taskRenderer: ({ taskRecord }: any) => {
-        const h = holdByTitle.get(taskRecord.name);
+        const h = holdsNow.current.find((x) => (x.status === 'held' || x.status === 'pending') && x.milestone_title === taskRecord.name);
         const label = h ? `${taskRecord.name} · hold ${money(h.amount_cents)} · ${holdTag(h)}` : taskRecord.name;
         return { tag: 'span', text: label };
       },
@@ -125,6 +134,7 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
         afterTaskEdit: ({ source }: any) => handleScheduleChange(source),
       },
     });
+    ganttRef.current = gantt;
     lastPayout = payoutStart(gantt);
 
     // Demo hook for screenshots only: ?edit=<milestone> opens that task's editor on load, so a
@@ -145,9 +155,26 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
     });
 
     return () => {
+      ganttRef.current = null;
       gantt.destroy();
     };
-  }, [startDate, milestones, holds]);
+  }, [startDate]);
+
+  // W-4: patch status, colour and hold labels in place, then refresh the bars.
+  useEffect(() => {
+    const g = ganttRef.current;
+    if (!g) return;
+    const alertSet = new Set(alerts);
+    for (const m of milestones) {
+      const rec = g.taskStore.getById(m.id) as any;
+      if (!rec) continue;
+      rec.set({
+        status: m.paypal_status === 'paid' ? 'Paid' : 'Planned',
+        eventColor: alertSet.has(m.title) ? 'red' : m.paypal_status === 'paid' ? 'green' : undefined,
+      });
+    }
+    g.refresh();
+  }, [milestones, holds, alerts]);
 
   return <div ref={host} className="gantt-wrap" />;
 }

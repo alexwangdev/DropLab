@@ -4,6 +4,17 @@ AI-planned 3-day pop-up merch drops. An LLM agent plans the drop and searches re
 
 Licence: [MIT](LICENSE)
 
+Judges: start with [docs/judge-quickstart.md](docs/judge-quickstart.md). It has the three steps and the sandbox buyer account (the password is not published).
+
+## Buyer side (round 3)
+
+- **Storefront** (`/drop/:id/store`): product cards from the drop's Channel3 results, a countdown to the mandate's closing date, and sell-through from captured orders (`#N of M`). **Reserve with PayPal** runs the existing checkout. Capacity is set per drop (1–500, default 50); a sold-out drop refuses checkout with 409 `sold_out` before any PayPal call.
+- **Money waterfall** (checkout, after capture): the captured total splits into Organizer 70%, Supplier 20% and DropLab 10% from the real Payouts batch. Before a payout exists the buckets read "Payout pending".
+- **Drop-day ticker**: the Drop page polls every 5 seconds while the tab is visible. A captured milestone turns green. A selected product that is out of stock or moved at a gate re-check turns the Order task red and offers real Channel3 substitutes. Applying one invalidates an approved mandate, so the new plan needs approval.
+- **Evidence** (`/drop/:id/evidence`): counts with their sources, a Verify button for the ledger, and a browser-only tamper demo that never writes to the database.
+- **Try to break it**: a pasted hostile text runs through the same mandate and plan-hash checks. The text can only set a quantity. The response reports `paypal_calls: 0`.
+- **Not verified yet**: a live sandbox pre-order and payout for the waterfall screenshot (needs a PayPal sandbox login by a person); a live Channel3 stock-out (the red and substitute path is tested, not seen live); the AG Studio products table (it shows no rows yet, see [docs/ag-grid-studio.md](docs/ag-grid-studio.md)).
+
 ## Run locally
 
 1. Start PostgreSQL and create a database and role (use your own password):
@@ -115,15 +126,16 @@ APIMatic trace: [docs/apimatic-trace.md](docs/apimatic-trace.md), passed on atte
 - **Negotiation (F6) is simulated.** Three suppliers are labelled 'Simulated supplier' in the UI, the API and the ledger. Each quote is HMAC-signed with a static key that exists only to demonstrate the check. A counter-offer never goes below 90% of list, and a result above the mandate ceiling is refused. The saving is shown but not applied to the charge.
 - **Payroll (F7) is cut.** It was a second product and is not built.
 - **Real holds (F3) stay simulated.** The PayPal Orders v2 `authorize` call is in the spec, and capture and void are confirmed in PayPal's docs. Each hold needs its own buyer approval, and that flow was not run end to end in this build. No PayPal authorization ID is recorded.
-- **Tests:** 45 in total: 23 rule tests, 4 negotiation tests, 3 MCP fallback tests, and 15 HTTP route tests on a separate `droplab_test` database. The route tests cover refunds, holds guards, schedule changes, mandates and ledger. None calls PayPal, Channel3 or the LLM. CI runs the build and tests on push.
+- **Tests:** 68 in total (`npm test`, also run by `npm run verify`): 23 rule tests, 4 negotiation tests, 3 MCP fallback tests, 4 waterfall split tests, 4 substitute tests, 4 evidence tests, and 26 HTTP route tests on a separate `droplab_test` database. The route tests cover refunds, holds guards, schedule changes, mandates, the ledger, the storefront capacity, the ticker re-check and substitute, the evidence route and the injection block. None calls PayPal, Channel3 or the LLM. CI runs the build and tests on push.
 - **The Postgres browser run is done.** It includes mandate, approval, payment, capture, payout, gate reopen, hold rebooking, and ledger verification.
 - **Channel3 price changes arrive in the demo as a simulated plan price.** The gate compares a plan price 10% below live against the live Channel3 price. Real moves depend on Channel3's data.
 - **Payout recipients are sandbox accounts.** The sandbox seller account cannot receive a payout (PayPal returns `SELF_PAY_NOT_ALLOWED`). The three shares go to three separate accounts, set by `PAYOUT_CREATOR_EMAIL`, `PAYOUT_SUPPLIER_EMAIL` and `PAYOUT_PLATFORM_EMAIL`.
 
 ## Not done
 
-Only three steps remain, and each is yours. See [SUBMISSION_CHECKLIST.md](SUBMISSION_CHECKLIST.md):
+Only the steps below remain, and each is yours. See [SUBMISSION_CHECKLIST.md](SUBMISSION_CHECKLIST.md):
 
 1. **Render deploy**: follow `devpost/deploy-checklist.md`.
 2. **Video**: record and upload to YouTube, under three minutes, using `devpost/video-script.md`.
 3. **Devpost submission**: paste `devpost/description.md` and `devpost/tools.md`.
+4. **AG Grid trial key extension**: the request is drafted in [docs/ag-grid-key-extension.md](docs/ag-grid-key-extension.md). It is not confirmed sent. The key deactivates on 8 December 2026.

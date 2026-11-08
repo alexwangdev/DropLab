@@ -31,7 +31,7 @@ const result: Record<string, unknown> = {
 };
 
 // 1. unit tests
-const t = spawnSync(process.execPath, ['--import', 'tsx', '--test', 'test/rules.test.ts', 'test/negotiate.test.ts', 'test/routes.test.ts', 'test/channel3-mcp.test.ts'], { cwd: path.resolve(here, '..'), encoding: 'utf8' });
+const t = spawnSync(process.execPath, ['--import', 'tsx', '--test', 'test/rules.test.ts', 'test/negotiate.test.ts', 'test/routes.test.ts', 'test/channel3-mcp.test.ts', 'test/waterfall.test.ts', 'test/substitute.test.ts', 'test/evidence.test.ts'], { cwd: path.resolve(here, '..'), encoding: 'utf8' });
 const summary = `${t.stdout}\n${t.stderr}`;
 const pass = /ℹ pass (\d+)/.exec(summary);
 const fail = /ℹ fail (\d+)/.exec(summary);

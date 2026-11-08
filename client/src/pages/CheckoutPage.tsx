@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { api_, apiF, ApiError, money, type PayoutItem, type Product } from '../api';
+import { api_, apiF, ApiError, money, type PayoutItem, type Product, type SellThrough } from '../api';
+import MoneyWaterfall from '../components/MoneyWaterfall';
 
 type Stage = 'review' | 'redirecting' | 'capturing' | 'done' | 'cancelled' | 'error' | 'gate';
 
@@ -11,6 +12,10 @@ interface Captured {
   total_cents: number;
 }
 
+function isCompleted(c: Captured | null): boolean {
+  return !!c && c.status === 'COMPLETED';
+}
+
 export default function CheckoutPage() {
   const { id = '' } = useParams();
   const [search] = useSearchParams();
@@ -19,6 +24,7 @@ export default function CheckoutPage() {
   const [items, setItems] = useState<{ product_id: string; qty: number }[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [captured, setCaptured] = useState<Captured | null>(null);
+  const [sellAfter, setSellAfter] = useState<SellThrough | null>(null);
   const captureStarted = useRef(false);
   const [batch, setBatch] = useState<{ id: string; items: PayoutItem[] } | null>(null);
   const [payoutBusy, setPayoutBusy] = useState(false);
@@ -43,9 +49,11 @@ export default function CheckoutPage() {
     captureStarted.current = true;
     setStage('capturing');
     api_.captureOrder(token)
-      .then((res) => {
+      .then(async (res) => {
         setCaptured(res);
         setStage('done');
+        // Sell-through is counted by the server from captured orders, so re-read it after the capture.
+        api_.getDrop(id).then((d) => setSellAfter(d.sell_through)).catch(() => undefined);
       })
       .catch((e: Error) => {
         setError(e instanceof ApiError ? `${e.message}\n${JSON.stringify(e.body, null, 2)}` : e.message);
@@ -135,12 +143,20 @@ export default function CheckoutPage() {
   if (stage === 'done' && captured) {
     return (
       <div className="card">
+        {sellAfter && isCompleted(captured) && (
+          <div className="joined">
+            <h1>You're in — #{sellAfter.sold} of {sellAfter.capacity}</h1>
+            <p className="muted">Your pre-order is captured on PayPal (sandbox).</p>
+          </div>
+        )}
         <h1>Payment captured</h1>
         <p><b>PayPal order ID:</b> {captured.paypal_order_id}</p>
         <p><b>PayPal capture ID:</b> {captured.paypal_capture_id ?? '—'}</p>
         <p><b>Status:</b> {captured.status}</p>
         <p className="total">Total {money(captured.total_cents)}</p>
         <p className="muted">Sandbox only. No real money moved.</p>
+        <h2>Where the money goes</h2>
+        <MoneyWaterfall totalCents={captured.total_cents} items={batch?.items ?? null} batchId={batch?.id ?? null} />
         {!batch && (
           <button onClick={onPayout} disabled={payoutBusy}>
             {payoutBusy ? 'Sending payout…' : 'Split payout (70/20/10)'}
@@ -159,7 +175,7 @@ export default function CheckoutPage() {
           </div>
         )}
         {error && <div className="error">{error}</div>}
-        <Link to={`/drop/${id}`}>Back to drop</Link>
+        <p><Link to={`/drop/${id}/store`}>Back to storefront</Link> · <Link to={`/drop/${id}`}>Back to drop</Link></p>
       </div>
     );
   }

@@ -5,3 +5,6 @@ server/.env
 client/.env
 *.log
 server/scripts/apimatic/.cache/
+
+# Local-only sandbox logins (never commit)
+local/

@@ -8,6 +8,7 @@ export interface Drop {
   title: string;
   city: string;
   budget_cents: number;
+  capacity: number;
   status: 'planning' | 'live';
   start_date: string; // YYYY-MM-DD, Day 0 of the timeline
   plan_text: string | null;
@@ -74,15 +75,15 @@ function milestoneTemplate(dropId: string) {
   return [order, ship, setup, sell, payout];
 }
 
-export async function createDrop(input: { title: string; city: string; budget_cents: number }): Promise<Drop> {
+export async function createDrop(input: { title: string; city: string; budget_cents: number; capacity?: number }): Promise<Drop> {
   const id = randomUUID();
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `INSERT INTO drops (id, title, city, budget_cents, status, start_date)
-       VALUES ($1, $2, $3, $4, 'planning', $5) RETURNING *`,
-      [id, input.title, input.city, input.budget_cents, today()],
+      `INSERT INTO drops (id, title, city, budget_cents, status, start_date, capacity)
+       VALUES ($1, $2, $3, $4, 'planning', $5, $6) RETURNING *`,
+      [id, input.title, input.city, input.budget_cents, today(), input.capacity ?? 50],
     );
     for (const m of milestoneTemplate(id)) {
       await client.query(
@@ -104,6 +105,12 @@ export async function createDrop(input: { title: string; city: string; budget_ce
 export async function getDrop(id: string): Promise<Drop | undefined> {
   const { rows } = await pool.query('SELECT * FROM drops WHERE id = $1', [id]).catch(() => ({ rows: [] as any[] }));
   return rows[0] ? toDrop(rows[0]) : undefined;
+}
+
+/** Sell-through: captured orders only. The client never supplies this number. */
+export async function countCapturedOrders(dropId: string): Promise<number> {
+  const { rows } = await pool.query("SELECT count(*)::int AS n FROM orders WHERE drop_id = $1 AND status = 'COMPLETED'", [dropId]);
+  return rows[0].n;
 }
 
 export async function getProducts(dropId: string): Promise<Product[]> {
@@ -235,7 +242,7 @@ export async function markMilestonePaidTx(c: Client, dropId: string, title: stri
 const iso = (v: unknown) => (v instanceof Date ? v.toISOString() : String(v));
 
 function toDrop(r: any): Drop {
-  return { id: r.id, title: r.title, city: r.city, budget_cents: r.budget_cents, status: r.status, start_date: r.start_date, plan_text: r.plan_text, created_at: iso(r.created_at) };
+  return { id: r.id, title: r.title, city: r.city, budget_cents: r.budget_cents, capacity: r.capacity ?? 50, status: r.status, start_date: r.start_date, plan_text: r.plan_text, created_at: iso(r.created_at) };
 }
 function toProduct(r: any): Product {
   return { id: r.id, drop_id: r.drop_id, channel3_id: r.channel3_id, title: r.title, image_url: r.image_url, price_cents: r.price_cents, currency: r.currency, retailer: r.retailer, availability: r.availability, source: r.source, search_query: r.search_query ?? null };
@@ -248,4 +255,22 @@ function toOrder(r: any): Order {
 }
 function toPayout(r: any): PayoutRecord {
   return { batch_id: r.batch_id, order_id: r.order_id, request_id: r.request_id, items: r.items, created_at: iso(r.created_at) };
+}
+
+// W-4: swap one planned product for another (a real Channel3 result). Runs in the caller's transaction.
+export async function getProduct(dropId: string, productId: string): Promise<Product | undefined> {
+  const { rows } = await pool.query('SELECT * FROM products WHERE drop_id = $1 AND id = $2', [dropId, productId]);
+  return rows[0] ? toProduct(rows[0]) : undefined;
+}
+
+export async function replaceProductTx(c: Client, dropId: string, oldId: string, p: NewProduct): Promise<Product> {
+  await c.query('DELETE FROM products WHERE drop_id = $1 AND id = $2', [dropId, oldId]);
+  const id = randomUUID();
+  await c.query(
+    `INSERT INTO products (id, drop_id, channel3_id, title, image_url, price_cents, currency, retailer, availability, source, search_query)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+    [id, dropId, p.channel3_id, p.title, p.image_url, p.price_cents, p.currency, p.retailer, p.availability, p.source, p.search_query ?? null],
+  );
+  const { rows } = await c.query('SELECT * FROM products WHERE id = $1', [id]);
+  return toProduct(rows[0]);
 }

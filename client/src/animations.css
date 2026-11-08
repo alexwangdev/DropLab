@@ -1,0 +1,221 @@
+/*
+ * W-A animation pass. CSS only (no animation library). Rules:
+ * - animate transform and opacity only (compositor, no layout shift); bars use scaleX / scaleY, never width / height;
+ * - durations 150–400 ms, ease-out for entrances, ease-in-out for loops;
+ * - will-change only on the element that animates;
+ * - every animation is off under prefers-reduced-motion.
+ */
+
+/* 7. Global: route change fades the page in; buttons press down slightly. */
+.route-fade {
+  animation: route-fade-in 150ms ease-out both;
+}
+@keyframes route-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+button {
+  transition: transform 120ms ease-out, background-color 150ms ease-out;
+}
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* 7. Skeleton shimmer for loading states (Drop page, storefront). */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: #e6e9ef;
+  border-radius: 8px;
+  min-height: 16px;
+}
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  animation: shimmer 1.2s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes shimmer {
+  to { transform: translateX(100%); }
+}
+.skeleton-block { height: 120px; margin-bottom: 12px; }
+.skeleton-line { height: 14px; margin: 8px 0; width: 60%; }
+
+/* 1. Storefront: countdown digits tick with a 150 ms fade and slide. */
+.tick {
+  display: inline-block;
+  animation: tick-in 150ms ease-out both;
+}
+@keyframes tick-in {
+  from { opacity: 0.4; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 1. Sell-through bar fills with scaleX; the transition runs when the server count changes. */
+.sell-through-fill {
+  transition: transform 400ms ease-out;
+  will-change: transform;
+}
+
+/* 1. Product cards stagger in: fade and rise 8 px, 40 ms apart. */
+.store-card {
+  animation: card-in 300ms ease-out both;
+  animation-delay: calc(var(--i, 0) * 40ms);
+}
+@keyframes card-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 1. "You're in" card pops in (scale 0.96 to 1.0). */
+.joined {
+  animation: pop-in 300ms ease-out both;
+}
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 2. Waterfall: total counts up in JS; buckets fill with scaleY from the bottom; batch ID fades in last. */
+.waterfall-fill {
+  transform-origin: bottom center;
+  transform: scaleY(0);
+  transition: transform 500ms ease-out;
+  will-change: transform;
+}
+.waterfall-paid .waterfall-fill {
+  animation: none;
+}
+.waterfall-batch {
+  opacity: 0;
+  animation: fade-in-late 300ms ease-out 900ms both;
+}
+@keyframes fade-in-late {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* 2. Streams: a moving gradient along each stream (a loop, so ease-in-out). */
+.waterfall-stream {
+  position: relative;
+  height: 6px;
+  margin: 4px 0 8px;
+  border-radius: 999px;
+  background: #e6e9ef;
+  overflow: hidden;
+}
+.waterfall-stream::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, #0070ba, transparent);
+  animation: stream 1.4s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes stream {
+  to { transform: translateX(100%); }
+}
+.waterfall-pending .waterfall-stream::after {
+  animation: none;
+  transform: none;
+  opacity: 0;
+}
+
+/* 3. Drop page: the Gantt bar colour changes over 300 ms, not a snap. */
+.gantt-wrap .b-sch-event {
+  transition: background-color 300ms ease-out, border-color 300ms ease-out;
+}
+
+/* 3. Mandate verdict badge: a single scale pulse when the verdict changes (key on verdict re-mounts it). */
+.badge-changed {
+  animation: badge-pulse 300ms ease-out;
+}
+@keyframes badge-pulse {
+  0% { transform: scale(0.9); }
+  50% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+
+/* 4. Ledger grid: the newest row slides in from the top (first row only, 200 ms). */
+.ledger-new {
+  animation: ledger-slide 200ms ease-out both;
+}
+@keyframes ledger-slide {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* 4. Verify: a spinner that turns into a check. */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  margin-left: 8px;
+  border: 2px solid #c9d1dc;
+  border-top-color: #0070ba;
+  border-radius: 50%;
+  vertical-align: middle;
+  animation: spin 600ms linear infinite;
+  will-change: transform;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.check-in {
+  display: inline-block;
+  margin-left: 8px;
+  color: #1a7f37;
+  font-weight: 700;
+  animation: check-in 300ms ease-out both;
+}
+@keyframes check-in {
+  from { opacity: 0; transform: scale(0.6); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+/* 5. Evidence: a BROKEN badge shakes once and turns red. */
+.badge-broken-shake {
+  animation: shake 300ms ease-out;
+  background: #c62828;
+  color: #fff;
+}
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  50% { transform: translateX(4px); }
+  75% { transform: translateX(-2px); }
+}
+
+/* 6. Injection panel: the block result slides in; the fired rule highlights with a 400 ms pulse. */
+.injection-in {
+  animation: slide-in 300ms ease-out both;
+}
+@keyframes slide-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.rule-pulse {
+  animation: rule-pulse 400ms ease-out;
+  border-radius: 4px;
+}
+@keyframes rule-pulse {
+  0% { background-color: #fde2e2; }
+  100% { background-color: transparent; }
+}
+
+/* Reduced motion: no animation, no transition, final states shown at once. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+  .sell-through-fill,
+  .waterfall-fill {
+    transition: none !important;
+  }
+}

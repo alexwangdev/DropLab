@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import type { ICellRendererParams } from 'ag-grid-community';
 import { AllCommunityModule, ModuleRegistry, type ColDef, type GridApi, type GridReadyEvent, type SelectionChangedEvent } from 'ag-grid-community';
@@ -18,10 +18,18 @@ function ThumbCell(p: ICellRendererParams<Product>) {
 interface Props {
   products: Product[];
   onSelectionChange: (selected: Product[]) => void;
+  /** W-4: the page can set the selection (after a substitute). Optional; the grid still owns its own selection. */
+  selectedIds?: string[];
 }
 
-export default function ProductGrid({ products, onSelectionChange }: Props) {
+export default function ProductGrid({ products, onSelectionChange, selectedIds }: Props) {
   const gridApi = useRef<GridApi<Product> | null>(null);
+  useEffect(() => {
+    const api = gridApi.current;
+    if (!api || !selectedIds) return;
+    const want = new Set(selectedIds);
+    api.forEachNode((n) => n.setSelected(!!n.id && want.has(n.id)));
+  }, [selectedIds]);
   const [aiSchema, setAiSchema] = useState<string | null>(null);
   const columnDefs = useMemo<ColDef<Product>[]>(
     () => [

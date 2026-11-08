@@ -17,6 +17,9 @@ import { gateDecision, type GateChange } from './gate.js';
 import { decidePayout } from './payout.js';
 import { verifyChain } from './ledger.js';
 import { negotiate } from './negotiate.js';
+import { chooseSubstitutes } from './substitute.js';
+import { summarizeEvidence } from './evidence.js';
+import { readFileSync } from 'node:fs';
 
 export const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
@@ -121,6 +124,9 @@ async function runGate(drop: store.Drop, items: Item[]) {
         verdict: 'Cleared',
         detail: { changes: decision.changes },
       });
+    } else {
+      // W-5: every clear run is recorded, so the evidence page can count re-checks run, not only the catches.
+      await gov.appendLedger(c, drop.id, { kind: 'gate_checked', actor: 'server', amount_cents: 0, verdict: 'Cleared', detail: { checked: gateLines.length } });
     }
   });
   return decision;
@@ -146,7 +152,11 @@ app.post('/api/drops', route(async (req, res) => {
   if (!Number.isInteger(budget_cents) || budget_cents < 0) {
     return res.status(400).json({ error: 'budget_cents must be a non-negative integer' });
   }
-  const drop = await store.createDrop({ title: title.trim(), city: city.trim(), budget_cents });
+  const capacity = req.body?.capacity ?? 50;
+  if (!Number.isInteger(capacity) || capacity < 1 || capacity > 500) {
+    return res.status(400).json({ error: 'capacity must be an integer from 1 to 500' });
+  }
+  const drop = await store.createDrop({ title: title.trim(), city: city.trim(), budget_cents, capacity });
   const rules = parseRules(req.body, budget_cents);
   if ('error' in rules) return res.status(400).json(rules);
   await gov.tx(async (c) => {
@@ -175,8 +185,10 @@ function parseRules(body: any, defaultBudget: number): { rules: MandateRules } |
 app.get('/api/drops/:id', route(async (req, res) => {
   const drop = await store.getDrop(req.params.id);
   if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const sold = await store.countCapturedOrders(drop.id);
   res.json({
     drop,
+    sell_through: { sold, capacity: drop.capacity, sold_out: sold >= drop.capacity },
     products: await store.getProducts(drop.id),
     milestones: await store.getMilestones(drop.id),
     mandate: (await gov.getMandate(drop.id)) ?? null,
@@ -321,6 +333,89 @@ app.post('/api/drops/:id/gate/check', route(async (req, res) => {
   res.json({ gate: 'cleared', total_cents: cartTotal(sel.lines), changes: decision.changes });
 }));
 
+// ---------- W-4 drop-day ticker: re-check and substitute ----------
+
+// POST /api/drops/:id/recheck -> live Channel3 re-check of the drop's products through the same gate as checkout.
+// Writes gate_drift / gate_reopened ledger entries for changes; the Drop page picks them up on its next poll.
+app.post('/api/drops/:id/recheck', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const live = (await store.getProducts(drop.id)).filter((p) => p.source === 'channel3').slice(0, 12);
+  if (live.length === 0) return res.json({ checked: 0, gate: 'cleared', changes: [] });
+  try {
+    const decision = await runGate(drop, live.map((p) => ({ product_id: p.id, qty: 1 })));
+    res.json({ checked: live.length, gate: decision.gate, changes: decision.changes });
+  } catch (e) {
+    console.error('[recheck] Channel3 re-check failed:', (e as Error).message);
+    res.status(502).json({ error: 'Channel3 price re-check failed', detail: (e as Error).message });
+  }
+}));
+
+// POST /api/drops/:id/substitute { product_id } -> PROPOSAL only. Real Channel3 results for the same search,
+// in stock, USD, not already planned, within the per-item cap. Nothing is written.
+app.post('/api/drops/:id/substitute', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const product = typeof req.body?.product_id === 'string' ? await store.getProduct(drop.id, req.body.product_id) : undefined;
+  if (!product) return res.status(404).json({ error: 'product not found in this drop' });
+  const query = product.search_query ?? product.title;
+  let out;
+  try {
+    out = await searchWithFallback(query, SEARCH_LIMIT);
+  } catch (e) {
+    return res.status(502).json({ error: 'Channel3 search failed', detail: (e as Error).message });
+  }
+  const planIds = new Set((await store.getProducts(drop.id)).map((p) => p.channel3_id));
+  const m = await gov.getMandate(drop.id);
+  const candidates = chooseSubstitutes(out.products, planIds, m?.per_item_cap_cents ?? null, 3);
+  res.json({ replacing: { product_id: product.id, title: product.title, price_cents: product.price_cents, availability: product.availability }, search_query: query, source: out.source, mcp_error: out.mcp_error, candidates });
+}));
+
+// POST /api/drops/:id/substitute/apply { remove_product_id, channel3_id } -> swaps the product after the organiser
+// confirms. The candidate must be a current substitute from a fresh Channel3 search (never a client-supplied price).
+// Writes a plan_replanned ledger entry; an approved mandate is invalidated (its hash no longer matches the plan).
+app.post('/api/drops/:id/substitute/apply', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const old = typeof req.body?.remove_product_id === 'string' ? await store.getProduct(drop.id, req.body.remove_product_id) : undefined;
+  if (!old) return res.status(404).json({ error: 'product not found in this drop' });
+  const wantedId = String(req.body?.channel3_id ?? '');
+  if (!wantedId) return res.status(400).json({ error: 'channel3_id is required' });
+  let out;
+  try {
+    out = await searchWithFallback(old.search_query ?? old.title, SEARCH_LIMIT);
+  } catch (e) {
+    return res.status(502).json({ error: 'Channel3 search failed', detail: (e as Error).message });
+  }
+  const planIds = new Set((await store.getProducts(drop.id)).map((p) => p.channel3_id));
+  const m = await gov.getMandate(drop.id);
+  const cand = chooseSubstitutes(out.products, planIds, m?.per_item_cap_cents ?? null, 50).find((c) => c.channel3_id === wantedId);
+  if (!cand) return res.status(409).json({ error: 'not_a_current_substitute', message: 'Search again: that product is no longer a valid substitute.' });
+
+  const approvalInvalidated = await gov.tx(async (c) => {
+    const inserted = await store.replaceProductTx(c, drop.id, old.id, { ...cand, source: 'channel3', search_query: old.search_query });
+    const invalidated = !!m && m.status === 'approved';
+    if (invalidated) {
+      await gov.setMandateStatus(c, drop.id, 'invalidated');
+      await gov.appendLedger(c, drop.id, { kind: 'approval_invalidated', actor: 'server', amount_cents: 0, verdict: 'Refused', detail: { reason: 'plan_replanned', approved_hash: m?.plan_hash ?? null } });
+    }
+    await gov.appendLedger(c, drop.id, {
+      kind: 'plan_replanned',
+      actor: 'server',
+      amount_cents: cand.price_cents - old.price_cents,
+      paypal_ref: null,
+      verdict: 'Replanned',
+      detail: {
+        removed: { product_id: old.id, channel3_id: old.channel3_id, title: old.title, price_cents: old.price_cents },
+        added: { product_id: inserted.id, channel3_id: cand.channel3_id, title: cand.title, price_cents: cand.price_cents, retailer: cand.retailer },
+        approval_invalidated: invalidated,
+      },
+    });
+    return invalidated;
+  });
+  res.json({ status: 'replanned', approval_invalidated: approvalInvalidated, removed_product_id: old.id, added: { channel3_id: cand.channel3_id, title: cand.title, price_cents: cand.price_cents, retailer: cand.retailer } });
+}));
+
 // ---------- orders, capture, payouts ----------
 
 // POST /api/paypal/orders { drop_id, items: [{ product_id, qty }] } -> { paypal_order_id, approval_url }
@@ -329,6 +424,12 @@ app.post('/api/paypal/orders', route(async (req, res) => {
   if (!drop) return res.status(400).json({ error: 'valid drop_id is required' });
   const parsed = parseItems(req.body?.items);
   if ('error' in parsed) return res.status(400).json(parsed);
+
+  // W-1: sold out is checked before the gate and before any PayPal call.
+  const sold = await store.countCapturedOrders(drop.id);
+  if (sold >= drop.capacity) {
+    return res.status(409).json({ error: 'sold_out', message: 'This drop is sold out.', sold, capacity: drop.capacity });
+  }
 
   // F2: the gate runs first. A reopened gate means no PayPal call at all.
   let decision;
@@ -754,6 +855,25 @@ app.get('/api/drops/:id/ledger/verify', route(async (req, res) => {
   res.json(verifyChain(await gov.listLedger(req.params.id)));
 }));
 
+// ---------- W-5 evidence ----------
+
+/** Bench results written by `npm run verify`. Absent until a verify run has happened. */
+function readBench(): Record<string, unknown> {
+  try {
+    const raw = readFileSync(new URL('../../bench/results.json', import.meta.url), 'utf8');
+    return { present: true, ...JSON.parse(raw) };
+  } catch {
+    return { present: false };
+  }
+}
+
+// GET /api/drops/:id/evidence -> counts computed from the ledger on the server, plus the bench file
+app.get('/api/drops/:id/evidence', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  res.json({ drop_id: drop.id, counts: summarizeEvidence(await gov.listLedger(drop.id)), bench: readBench() });
+}));
+
 // ---------- F5 refusal demo (fresh drops each run; real 409/422 bodies) ----------
 
 // POST /api/demo/refusals -> runs the over-budget and price-jump refusals on fresh drops
@@ -808,6 +928,58 @@ app.post('/api/demo/duplicate-payout', route(async (req, res) => {
   const first = await payoutForOrder(orderId);
   const second = await payoutForOrder(orderId);
   res.json({ first: { http_status: first.status, ...first.body }, second: { http_status: second.status, ...second.body }, same_batch: first.body.paypal_batch_id === second.body.paypal_batch_id });
+}));
+
+// ---------- W-6 live injection block ----------
+
+// POST /api/demo/injection { drop_id, product_id, text } -> runs a pasted "product description" through the SAME
+// checks as checkout: the mandate (evaluateMandate) and the approved plan hash. The text can only supply a
+// quantity ("buy N"). Price comes from the DB, and payee, address and every other field in the text are ignored.
+// This endpoint never calls PayPal (paypal_calls is always 0).
+const INJECTION_IGNORED = /\b(ship|shipping|address|payee|send to|refund|price|discount)\b/gi;
+
+app.post('/api/demo/injection', route(async (req, res) => {
+  const drop = typeof req.body?.drop_id === 'string' ? await store.getDrop(req.body.drop_id) : undefined;
+  if (!drop) return res.status(400).json({ error: 'valid drop_id is required' });
+  const product = typeof req.body?.product_id === 'string' ? await store.getProduct(drop.id, req.body.product_id) : undefined;
+  if (!product) return res.status(400).json({ error: 'product_id of a product in this drop is required' });
+  const text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 500) : '';
+  const m = /\bbuy\s+(\d{1,4})\b/i.exec(text);
+  const qty = m ? Math.max(1, Number(m[1])) : 1;
+  const ignored = [...new Set([...text.matchAll(INJECTION_IGNORED)].map((x) => x[0].toLowerCase()))];
+  const lines: Line[] = [{ product_id: product.id, qty, price_cents: product.price_cents }];
+
+  const mandate = await gov.getMandate(drop.id);
+  const ev = evaluateMandate(rulesFrom(drop, mandate), lines, new Date());
+  const actualHash = planHash(lines);
+  const expectedHash = mandate?.status === 'approved' ? mandate.plan_hash : null;
+  const rule = ev.verdict === 'Refused' ? 'mandate_refused' : expectedHash && expectedHash !== actualHash ? 'plan_hash_mismatch' : null;
+  const extracted = { product_id: product.id, qty, unit_price_cents: product.price_cents, total_cents: ev.total_cents, ignored_fields: ignored };
+
+  if (!rule) {
+    return res.json({ blocked: false, verdict: ev.verdict, actual_plan_hash: actualHash, paypal_calls: 0, extracted });
+  }
+  await gov.tx(async (c) => {
+    await gov.insertMandateChecks(c, drop.id, ev.verdict, ev.rules_fired, ev.total_cents);
+    await gov.appendLedger(c, drop.id, {
+      kind: 'injection_blocked',
+      actor: 'server',
+      amount_cents: ev.total_cents,
+      verdict: 'Refused',
+      detail: { rule_fired: rule, rules_fired: ev.rules_fired, expected_plan_hash: expectedHash, actual_plan_hash: actualHash, product_id: product.id, qty, ignored_fields: ignored },
+    });
+  });
+  res.status(409).json({
+    blocked: true,
+    error: rule,
+    rule_fired: rule,
+    rules_fired: ev.rules_fired,
+    expected_plan_hash: expectedHash,
+    actual_plan_hash: actualHash,
+    paypal_calls: 0,
+    extracted,
+    note: 'Blocked before any PayPal call. The text supplied only a quantity; the price came from the database.',
+  });
 }));
 
 // ---------- F6 simulated negotiation ----------

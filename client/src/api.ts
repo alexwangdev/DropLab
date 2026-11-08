@@ -1,8 +1,15 @@
+export interface SellThrough {
+  sold: number;
+  capacity: number;
+  sold_out: boolean;
+}
+
 export interface Drop {
   id: string;
   title: string;
   city: string;
   budget_cents: number;
+  capacity: number;
   status: 'planning' | 'live';
   start_date: string;
   plan_text: string | null;
@@ -153,11 +160,46 @@ export const apiF = {
     api<{ gate: 'cleared'; total_cents: number; changes: GateChange[] }>(`/drops/${dropId}/gate/check`, { method: 'POST', body: JSON.stringify({ items }) }),
   ledger: (dropId: string) => api<LedgerEntry[]>(`/drops/${dropId}/ledger`),
   verifyLedger: (dropId: string) => api<{ ok: boolean; entries: number; broken_at_seq: number | null }>(`/drops/${dropId}/ledger/verify`),
+  /** W-5: counts from the ledger (server math) and the bench file, with their sources. */
+  evidence: (dropId: string) =>
+    api<{ drop_id: string; counts: { price_checks_run: number; price_checks_caught: number; out_of_stock_caught: number; extra_charge_avoided_cents: number; mandate_refused: number; approvals_invalidated: number; ledger_entries: number }; bench: { present: boolean; [k: string]: unknown } }>(
+      `/drops/${dropId}/evidence`,
+    ),
+  /** W-6: a pasted text runs through the same mandate and plan-hash checks. It never calls PayPal. */
+  injection: (dropId: string, product_id: string, text: string) =>
+    api<{ blocked: boolean; error?: string; rule_fired?: string; rules_fired?: RuleFired[]; expected_plan_hash?: string | null; actual_plan_hash: string; paypal_calls: number; verdict?: Verdict; extracted: { qty: number; unit_price_cents: number; total_cents: number; ignored_fields: string[] }; note?: string }>(
+      '/demo/injection',
+      { method: 'POST', body: JSON.stringify({ drop_id: dropId, product_id, text }) },
+    ).catch((e: ApiError) => {
+      if (e.body && typeof e.body === 'object' && 'blocked' in (e.body as object)) return e.body as never;
+      throw e;
+    }),
+  /** W-5: runs the refusal cases on fresh demo drops (real 409 bodies). Labelled as a demo run. */
+  refusalCases: () =>
+    api<{ scenarios: { scenario: string; drop_id?: string; checkout_http_status?: number; http_status?: number; gate?: string; verdict?: string; rules_fired?: { rule: string; verdict: string; actual_cents: number; expected_cents: number | null }[]; error?: string; note?: string }[] }>(
+      '/demo/refusals',
+      { method: 'POST' },
+    ),
   holds: (dropId: string) => api<HoldRow[]>(`/drops/${dropId}/holds`),
   rebookHold: (dropId: string, milestone_title: string) =>
     api<{ voided: string | null; hold: HoldRow; approval_url: string | null }>(`/drops/${dropId}/holds/rebook`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
   requestHold: (dropId: string, milestone_title: string) =>
     api<HoldRequest>(`/drops/${dropId}/holds`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
+  /** W-4: live Channel3 re-check of the drop's products through the checkout gate. */
+  recheck: (dropId: string) =>
+    api<{ checked: number; gate: 'cleared' | 'reopened'; changes: GateChange[] }>(`/drops/${dropId}/recheck`, { method: 'POST' }),
+  /** W-4: proposal only. Real Channel3 candidates for a planned product that needs replacing. */
+  proposeSubstitute: (dropId: string, product_id: string) =>
+    api<{ replacing: { product_id: string; title: string; price_cents: number; availability: string }; search_query: string; source: string; candidates: { channel3_id: string; title: string; price_cents: number; retailer: string; availability: string; image_url: string | null; currency: string }[] }>(
+      `/drops/${dropId}/substitute`,
+      { method: 'POST', body: JSON.stringify({ product_id }) },
+    ),
+  /** W-4: applies one candidate from a fresh search. Invalidates an approved mandate. */
+  applySubstitute: (dropId: string, remove_product_id: string, channel3_id: string) =>
+    api<{ status: string; approval_invalidated: boolean; removed_product_id: string; added: { channel3_id: string; title: string; price_cents: number; retailer: string } }>(
+      `/drops/${dropId}/substitute/apply`,
+      { method: 'POST', body: JSON.stringify({ remove_product_id, channel3_id }) },
+    ),
   authorizeHold: (dropId: string, holdId: string, order_id: string) =>
     api<{ status: string; paypal_authorization_id: string }>(`/drops/${dropId}/holds/${holdId}/authorize`, { method: 'POST', body: JSON.stringify({ order_id }) }),
 };
@@ -180,10 +222,10 @@ export const api_ = {
     api<{ paypal_batch_id: string; batch_status: string | null; items: PayoutItem[] }>(
       `/paypal/payouts/${encodeURIComponent(batchId)}`,
     ),
-  createDrop: (body: { title: string; city: string; budget_cents: number }) =>
+  createDrop: (body: { title: string; city: string; budget_cents: number; capacity?: number }) =>
     api<Drop>('/drops', { method: 'POST', body: JSON.stringify(body) }),
   getDrop: (id: string) =>
-    api<{ drop: Drop; products: Product[]; milestones: Milestone[]; mandate: MandateRow | null; holds: HoldRow[] }>(`/drops/${id}`),
+    api<{ drop: Drop; sell_through: SellThrough; products: Product[]; milestones: Milestone[]; mandate: MandateRow | null; holds: HoldRow[] }>(`/drops/${id}`),
   plan: (id: string, query: string, prompt: string) =>
     api<{ source: 'llm' | 'channel3' | 'seed'; error: string | null; plan_text: string | null; trace: string[]; products: Product[]; milestones: Milestone[] }>(
       `/drops/${id}/plan`,
