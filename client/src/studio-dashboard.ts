@@ -4,9 +4,11 @@ import type { Product } from './api';
 // pages -> widgets / widgetLayout / layout). The schema exposes fields table-qualified, so every
 // field id is "<table>.<column>". Bare ids fail validation with "does not exist in the schema".
 //
+// Chart-only dashboard. The Studio products-table widget was cut: the grid widget in ag-studio 3.1.0 renders
+// no rows on a verified config (see docs/ag-grid-studio.md). The products are in the AG Grid table on the Drop page.
+//
 // Widgets:
-//  - "prices": grouped column chart, average price (USD) by retailer
-//  - "products": grid of the products on this drop with price and stock
+//  - "prices": grouped column chart, average price (USD) by retailer (full width)
 
 export const PRODUCTS_TABLE = 'products';
 
@@ -37,17 +39,9 @@ export function buildDashboardState() {
               valueKey: [{ ...f('price_usd'), aggregation: 'avg' }],
             },
           },
-          products: {
-            type: 'grid',
-            format: { title: { text: 'Products on this drop', enabled: true } },
-            dataMapping: {
-              cols: [f('product'), f('retailer'), f('price_usd'), f('stock')],
-            },
-          },
         },
         widgetLayout: {
-          prices: { xTrack: 0, yTrack: 0, xSpan: 6, ySpan: 6 },
-          products: { xTrack: 6, yTrack: 0, xSpan: 6, ySpan: 6 },
+          prices: { xTrack: 0, yTrack: 0, xSpan: 12, ySpan: 6 },
         },
         layout: { type: 'widget' as const, columns: 12, rowHeight: 40 },
       },

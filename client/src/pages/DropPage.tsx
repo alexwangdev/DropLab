@@ -67,6 +67,11 @@ export default function DropPage() {
     refreshLedger().catch(() => undefined);
   }, [id, refreshLedger]);
 
+  // Links to #products (from the Studio page) scroll to the table once the drop has loaded.
+  useEffect(() => {
+    if (drop && window.location.hash === '#products') document.getElementById('products')?.scrollIntoView({ block: 'start' });
+  }, [drop]);
+
   // W-4 ticker: poll every 5 seconds while the tab is visible. Only changed data is set, so a poll with no
   // change re-renders nothing, and the Gantt is patched in place (not rebuilt) when a milestone or hold changes.
   const refreshAll = useCallback(async () => {
@@ -427,7 +432,7 @@ export default function DropPage() {
         <Negotiation dropId={id} items={items} />
       </div>
 
-      <div className="card">
+      <div className="card" id="products">
         <h2>Pick products</h2>
         <p className="muted">Select rows to add them to the pre-order.</p>
         <SearchSets products={products} />

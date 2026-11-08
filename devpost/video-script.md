@@ -41,7 +41,7 @@ Only show a price move if it happened for real. If no live Channel3 move has bee
 ## Notes for recording
 
 - Use the live Render URL once deployed. Until then, record on localhost and say so.
-- Do not show the AG Studio products table until it renders rows. The Studio page is pre-built (view mode) and its chart is live.
+- The Studio page is pre-built (view mode) and its chart is live. The products table was cut from the Studio dashboard (the ag-studio 3.1.0 grid widget renders no rows), so show the chart, then the link to the working AG Grid product table on the Drop page.
 - The AG Grid AI Toolkit is installed but not shown in the video.
 - Do not show the price-move fixture as a live Channel3 move. No real Channel3 move has been observed.
 - The AG Grid trial key expires on 8 December 2026. Keep it valid until recording.
