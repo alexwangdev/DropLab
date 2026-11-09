@@ -235,3 +235,55 @@ export async function tx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
     c.release();
   }
 }
+
+// ---- staged supplier payouts (see tranches.ts). A captured order is "staged" when its at-capture batch did not
+// pay the supplier: either it has no batch yet, or its batch was created after the staged rule (no supplier item).
+// Orders paid under the old rule (a supplier item in the batch) are history and never enter the pool.
+
+export interface StagedOrder {
+  paypal_order_id: string;
+  total_cents: number;
+  paypal_capture_id: string | null;
+}
+
+export async function stagedOrders(dropId: string, db: Db = pool): Promise<StagedOrder[]> {
+  const { rows } = await db.query(
+    `SELECT o.paypal_order_id, o.total_cents, o.paypal_capture_id, p.items
+       FROM orders o LEFT JOIN payouts p ON p.order_id = o.paypal_order_id
+      WHERE o.drop_id = $1 AND o.status = 'COMPLETED'
+      ORDER BY o.created_at, o.paypal_order_id`,
+    [dropId],
+  );
+  return rows
+    .filter((r: any) => !(Array.isArray(r.items) && r.items.some((i: any) => i.role === 'supplier')))
+    .map((r: any) => ({ paypal_order_id: r.paypal_order_id, total_cents: r.total_cents, paypal_capture_id: r.paypal_capture_id }));
+}
+
+export interface TrancheRow {
+  milestone: string;
+  pct: number;
+  pool_accrued_cents: number;
+  amount_cents: number;
+  batch_id: string;
+  ledger_seq: number | null;
+  created_at: string;
+}
+
+export async function listTranches(dropId: string, db: Db = pool): Promise<TrancheRow[]> {
+  const { rows } = await db.query('SELECT * FROM supplier_tranches WHERE drop_id = $1 ORDER BY created_at', [dropId]);
+  return rows.map((r: any) => ({ milestone: r.milestone, pct: r.pct, pool_accrued_cents: r.pool_accrued_cents, amount_cents: r.amount_cents, batch_id: r.batch_id, ledger_seq: r.ledger_seq, created_at: iso(r.created_at)! }));
+}
+
+export async function releasedCents(dropId: string, db: Db = pool): Promise<number> {
+  const { rows } = await db.query('SELECT COALESCE(SUM(amount_cents), 0)::int AS total FROM supplier_tranches WHERE drop_id = $1', [dropId]);
+  return rows[0].total;
+}
+
+/** Inserts one tranche row. Throws on a second release of the same milestone (primary key). */
+export async function insertTrancheTx(c: PoolClient, row: Omit<TrancheRow, 'created_at'> & { drop_id: string }): Promise<void> {
+  await c.query(
+    `INSERT INTO supplier_tranches (drop_id, milestone, pct, pool_accrued_cents, amount_cents, batch_id, ledger_seq)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [row.drop_id, row.milestone, row.pct, row.pool_accrued_cents, row.amount_cents, row.batch_id, row.ledger_seq],
+  );
+}

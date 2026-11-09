@@ -9,5 +9,72 @@
   "refund_id": "9AU16177B8891051L",
   "ledger_verified": true,
   "ledger_entries": 21,
-  "notes": []
+  "notes": [],
+  "staged_payouts": {
+    "ran_at": "2026-11-08 (staged payouts run, dev server)",
+    "note": "Fresh PayPal sandbox orders, captured after buyer approval. Supplier share staged and released by milestone. Existing bench IDs above are unchanged.",
+    "drop_release": {
+      "drop_id": "02fe7674-b671-492f-9609-82b38dfe7b29"
+    },
+    "orders_captured": [
+      {
+        "paypal_order_id": "3CW17888PS0513946",
+        "paypal_capture_id": "7LA89405N8676154N",
+        "total_cents": 4563
+      },
+      {
+        "paypal_order_id": "24T274504H8535350",
+        "paypal_capture_id": "6CG10735WB636711P",
+        "total_cents": 4800
+      }
+    ],
+    "tranches": [
+      {
+        "milestone": "Ship",
+        "amount_cents": 748,
+        "paypal_batch_id": "UDWL2J3JEDSGY",
+        "ledger_seq": 17
+      },
+      {
+        "milestone": "Sell",
+        "amount_cents": 749,
+        "paypal_batch_id": "QK4WKYVGLTQKS",
+        "ledger_seq": 19
+      },
+      {
+        "milestone": "Payout",
+        "amount_cents": 375,
+        "paypal_batch_id": "QN35R7DEHN9GQ",
+        "ledger_seq": 21
+      }
+    ],
+    "pool_accrued_cents": 1872,
+    "repeat_ship_returned_existing_batch": "UDWL2J3JEDSGY",
+    "cancelled_drop": {
+      "drop_id": "4fc21793-2b97-4665-841a-a53ba07ead42",
+      "refunded_cents": 718,
+      "refunds": [
+        {
+          "paypal_ref": "12E62002U17646842",
+          "amount_cents": 259
+        },
+        {
+          "paypal_ref": "7H28098637601114X",
+          "amount_cents": 459
+        }
+      ]
+    },
+    "ledger_verify": {
+      "drop_a": {
+        "ok": true,
+        "entries": 21,
+        "broken_at_seq": null
+      },
+      "drop_b": {
+        "ok": true,
+        "entries": 18,
+        "broken_at_seq": null
+      }
+    }
+  }
 }

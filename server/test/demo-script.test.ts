@@ -17,6 +17,7 @@ const PAGE_FOR_ROUTE: Record<string, string> = {
   '/drop/demo/store': 'pages/StorePage.tsx',
   '/drop/demo/checkout': 'pages/CheckoutPage.tsx',
   '/drop/demo/evidence': 'pages/EvidencePage.tsx',
+  '/drop/demo/studio': 'pages/StudioPage.tsx',
 };
 
 test('the fresh-drop run fits the 170-second budget, and so does the captured-drop run', () => {
@@ -25,7 +26,7 @@ test('the fresh-drop run fits the 170-second budget, and so does the captured-dr
   assert.ok(fresh <= TOTAL_BUDGET_SECONDS, `fresh run ${fresh}s over ${TOTAL_BUDGET_SECONDS}s`);
   assert.ok(captured <= TOTAL_BUDGET_SECONDS, `captured run ${captured}s over ${TOTAL_BUDGET_SECONDS}s`);
   const acts = budgetByAct(false);
-  assert.equal(acts[1] + acts[2] + acts[3], fresh);
+  assert.ok(Math.abs(acts[1] + acts[2] + acts[3] - fresh) < 1e-6, 'per-act budgets must add up to the run total');
 });
 
 test('every step route is a real route in App.tsx', () => {
@@ -66,10 +67,50 @@ test('every step has a narration and a caption, and each narration is under 25 w
   }
 });
 
-test('no step targets the cut Studio products table or the Studio page', () => {
+test('the only Studio step is the view-mode dashboard; the cut products table is never targeted', () => {
   for (const s of DEMO_STEPS) {
-    assert.ok(!s.route.includes('studio'), `${s.id}: routes to studio`);
-    assert.ok(!/studio|products-table|Products on this drop/i.test(s.selector), `${s.id}: selector targets the cut table`);
+    if (s.route.includes('studio')) {
+      assert.equal(s.id, 'g3-studio', `${s.id}: only g3-studio may route to studio`);
+    }
+    assert.ok(!/products-table|Products on this drop/i.test(s.selector), `${s.id}: selector targets the cut table`);
+  }
+});
+
+test('G-3 (Studio) is view mode only, with no edit mode, and its text makes no AI assistant claim', () => {
+  const step = DEMO_STEPS.find((s) => s.id === 'g3-studio');
+  assert.ok(step, 'g3-studio step missing');
+  assert.equal(step.route, '/drop/demo/studio');
+  assert.ok(!/mode=edit/.test(step.route + step.selector), 'G-3 must not open edit mode');
+  assert.doesNotMatch(`${step.narration} ${step.caption}`, /AI assistant|ask studio/i);
+  assert.equal(step.action, 'scroll', 'G-3 must not click (the link is shown, not opened)');
+});
+
+test('G-1 (comparison) comes after f5-negotiate, so the negotiation still runs on one selection', () => {
+  const idx = (id: string) => DEMO_STEPS.findIndex((s) => s.id === id);
+  assert.ok(idx('g1-compare-select') > idx('f5-negotiate'), 'second selection must follow the negotiation');
+  assert.ok(idx('g1-compare') > idx('g1-compare-select'), 'comparison view follows the second selection');
+  const select = DEMO_STEPS[idx('g1-compare-select')];
+  assert.equal(select.nth, 2, 'the second selection must pick the second row');
+  assert.equal(DEMO_STEPS[idx('f5-select-product')].nth, undefined, 'the first selection stays the first row');
+});
+
+test('G-2 (payout pie) is fresh-run only, and the captured-run payout step is still captured-only', () => {
+  const pie = DEMO_STEPS.find((s) => s.id === 'g2-payout-pie');
+  const existing = DEMO_STEPS.find((s) => s.id === 'b6-payout-existing');
+  assert.ok(pie && existing, 'g2-payout-pie and b6-payout-existing must both exist');
+  assert.equal(pie.when, 'fresh');
+  assert.equal(existing.when, 'captured');
+  // Both steps show the same payout card: the pie (payout-pie sits inside it) or its heading (payout).
+  const payoutSteps = (steps: typeof DEMO_STEPS) => steps.filter((s) => /data-demo="payout(-pie)?"/.test(s.selector));
+  assert.equal(payoutSteps(stepsFor(true)).length, 1, 'captured run shows the payout card once');
+  assert.equal(payoutSteps(stepsFor(false)).length, 1, 'fresh run shows the payout card once');
+});
+
+test('every step caps at its narration length, within 2 s of words at 2.5 per second plus 1 s', () => {
+  for (const s of DEMO_STEPS) {
+    const words = s.narration.trim().split(/\s+/).length;
+    const estimate = words / 2.5 + 1;
+    assert.ok(Math.abs(s.seconds - estimate) <= 2, `${s.id}: cap ${s.seconds}s vs narration estimate ${estimate.toFixed(1)}s`);
   }
 });
 

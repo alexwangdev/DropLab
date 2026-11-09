@@ -137,3 +137,16 @@ ALTER TABLE holds ADD COLUMN IF NOT EXISTS approval_url text;
 ALTER TABLE drops ADD COLUMN IF NOT EXISTS capacity integer NOT NULL DEFAULT 50;
 ALTER TABLE drops DROP CONSTRAINT IF EXISTS drops_capacity_check;
 ALTER TABLE drops ADD CONSTRAINT drops_capacity_check CHECK (capacity BETWEEN 1 AND 500);
+
+-- Staged supplier payouts: one row per released tranche (a milestone pays once; the primary key enforces it).
+CREATE TABLE IF NOT EXISTS supplier_tranches (
+  drop_id             uuid NOT NULL REFERENCES drops(id) ON DELETE CASCADE,
+  milestone           text NOT NULL,
+  pct                 integer NOT NULL,
+  pool_accrued_cents  integer NOT NULL,
+  amount_cents        integer NOT NULL CHECK (amount_cents > 0),
+  batch_id            text NOT NULL,
+  ledger_seq          integer,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (drop_id, milestone)
+);

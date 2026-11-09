@@ -22,7 +22,7 @@ export default function Compare({ selected }: { selected: Product[] }) {
   const cheapest = selected.find((p) => p.price_cents === min)!;
   const dearest = selected.find((p) => p.price_cents === max)!;
   return (
-    <div>
+    <div data-demo="compare">
       <p className="muted">Comparison across your selection of {selected.length} products. Source: Channel3 search prices.</p>
       <div className="row">
         <div><b>Cheapest</b><div>{money(min)}</div><div className="muted">{cheapest.title}</div></div>

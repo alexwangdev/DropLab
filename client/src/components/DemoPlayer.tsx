@@ -41,11 +41,12 @@ export function resolveRoute(route: DemoRoute): string | null {
   return id ? route.replace('/demo', `/${id}`) : null;
 }
 
-function waitForSelector(selector: string, timeoutMs: number): Promise<Element | null> {
+function waitForSelector(selector: string, timeoutMs: number, nth = 1): Promise<Element | null> {
   return new Promise((resolve) => {
     const start = Date.now();
     const look = () => {
-      const el = document.querySelector(selector);
+      // nth: 1-based, so a step can pick a later row (the second product for the comparison).
+      const el = document.querySelectorAll(selector)[nth - 1] ?? null;
       if (el) return resolve(el);
       if (Date.now() - start > timeoutMs) return resolve(null);
       setTimeout(look, 150);
@@ -186,7 +187,7 @@ export default function DemoPlayer() {
     setCaption(step.caption);
 
     (async () => {
-      const el = await waitForSelector(step.selector, 8000);
+      const el = await waitForSelector(step.selector, 8000, step.nth ?? 1);
       if (el) {
         el.scrollIntoView({ block: 'center', behavior: 'smooth' });
         el.classList.add('demo-highlight');

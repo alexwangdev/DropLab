@@ -63,7 +63,7 @@ export default function StorePage() {
     <div className="store">
       <header className="store-head">
         <h1>{drop.title}</h1>
-        <p className="muted">{drop.city} · pre-order</p>
+        <p className="eyebrow">{drop.city} · pre-order</p>
         {msLeft === null ? (
           <p className="muted">No closing date set</p>
         ) : (
@@ -74,7 +74,11 @@ export default function StorePage() {
         )}
         <div className="sell-through" data-demo="sell-through">
           <div className="sell-through-text">
-            <b>#{sell.sold} of {sell.capacity}</b> <span className="muted">pre-orders captured</span>
+            {sell.sold === 0 ? (
+              <>Be the first to reserve <span className="muted">· 0 of {sell.capacity} spots taken</span></>
+            ) : (
+              <><b>#{sell.sold} of {sell.capacity}</b> <span className="muted">pre-orders captured</span></>
+            )}
           </div>
           <div className="sell-through-track">
             <div className="sell-through-fill" style={{ transform: `scaleX(${pct})` }} />

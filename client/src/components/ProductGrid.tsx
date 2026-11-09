@@ -33,13 +33,15 @@ export default function ProductGrid({ products, onSelectionChange, selectedIds }
   const [aiSchema, setAiSchema] = useState<string | null>(null);
   const columnDefs = useMemo<ColDef<Product>[]>(
     () => [
-      { field: 'image_url', headerName: 'Image', width: 80, filter: false, sortable: false, cellRenderer: ThumbCell },
-      { field: 'title', headerName: 'Product', flex: 2 },
-      { field: 'retailer', headerName: 'Retailer', flex: 1, enableRowGroup: true, enablePivot: true, filter: 'agSetColumnFilter' },
+      // U-3: explicit widths and minimums so every header shows in full on a 1200px page.
+      { field: 'image_url', headerName: 'Image', width: 96, minWidth: 96, filter: false, sortable: false, cellRenderer: ThumbCell },
+      { field: 'title', headerName: 'Product', flex: 2, minWidth: 220 },
+      { field: 'retailer', headerName: 'Retailer', flex: 1, minWidth: 130, enableRowGroup: true, enablePivot: true, filter: 'agSetColumnFilter' },
       {
         field: 'price_cents',
         headerName: 'Price',
-        flex: 1,
+        width: 140,
+        minWidth: 140,
         filter: 'agNumberColumnFilter',
         // Group rows carry a sum (number); anything else prints blank instead of NaN.
         valueFormatter: (p) => (typeof p.value === 'number' ? money(p.value) : ''),
@@ -47,9 +49,9 @@ export default function ProductGrid({ products, onSelectionChange, selectedIds }
         enableValue: true,
         aggFunc: 'sum',
       },
-      { field: 'availability', headerName: 'Stock', flex: 1 },
-      { field: 'search_query', headerName: 'Search', flex: 1, filter: 'agSetColumnFilter' },
-      { field: 'source', headerName: 'Data source', flex: 1 },
+      { field: 'availability', headerName: 'Stock', width: 140, minWidth: 140 },
+      { field: 'search_query', headerName: 'Search', width: 180, minWidth: 150, filter: 'agSetColumnFilter' },
+      { field: 'source', headerName: 'Data source', width: 160, minWidth: 150 },
     ],
     [],
   );

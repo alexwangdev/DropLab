@@ -15,3 +15,5 @@ Before submitting, check:
 ## Do this first (it takes days)
 
 - **Request the AG Grid / AG Charts trial extension.** The trial key deactivates on 8 December 2026, and judging runs to 15 December. Send the email in `docs/ag-grid-key-extension.md` to info@ag-grid.com. Put the new key in `.env` as `AG_GRID_LICENSE_KEY` when it arrives.
+
+- Supplier share is released in stages by Gantt milestone (Ship 40% / Sell 40% / Payout 20%), each tranche its own Payouts batch on the hash-chained ledger.

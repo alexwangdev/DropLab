@@ -98,20 +98,12 @@ button:active:not(:disabled) {
   to { opacity: 1; }
 }
 /* 2. Streams: a moving gradient along each stream (a loop, so ease-in-out). */
-.waterfall-stream {
-  position: relative;
-  height: 6px;
-  margin: 4px 0 8px;
-  border-radius: 999px;
-  background: #e6e9ef;
-  overflow: hidden;
-}
 .waterfall-stream::after {
   content: "";
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(90deg, transparent, #0070ba, transparent);
+  background: linear-gradient(90deg, transparent, var(--bucket, #0070ba), transparent);
   animation: stream 1.4s ease-in-out infinite;
   will-change: transform;
 }

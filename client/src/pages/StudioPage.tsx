@@ -71,7 +71,7 @@ export default function StudioPage() {
       <p className="muted">
         Built in AG Studio from this drop&apos;s live data: products and ledger rows. <Link to={`/drop/${id}`}>Back to the drop</Link>
       </p>
-      <p>
+      <p data-demo="studio-link">
         <Link to={`/drop/${id}#products`}>View the products in the full AG Grid table →</Link>
       </p>
       <div style={{ height: 720, width: '100%' }}>

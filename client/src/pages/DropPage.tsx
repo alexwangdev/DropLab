@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api_, apiF, money, type Drop, type Evaluation, type GateChange, type HoldRow, type LedgerEntry, type MandateRow, type Milestone, type Product, type SellThrough } from '../api';
+import { api_, apiF, money, type TrancheStatus, type Drop, type Evaluation, type GateChange, type HoldRow, type LedgerEntry, type MandateRow, type Milestone, type Product, type SellThrough } from '../api';
 import ProductGrid from '../components/ProductGrid';
 import TimelineGantt from '../components/TimelineGantt';
 import LedgerGrid from '../components/LedgerGrid';
@@ -34,6 +34,40 @@ export default function DropPage() {
   const [sub, setSub] = useState<{ replacing: string; title: string; source: string; candidates: { channel3_id: string; title: string; price_cents: number; retailer: string }[] } | null>(null);
   const [replanSel, setReplanSel] = useState<{ ids: string[] } | null>(null);
   const [rechecking, setRechecking] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  // Staged supplier payouts: pool, releases so far, and the release buttons (server decides every amount).
+  const [tranches, setTranches] = useState<TrancheStatus | null>(null);
+  const [releaseBusy, setReleaseBusy] = useState<string | null>(null);
+  const [releaseNote, setReleaseNote] = useState<string | null>(null);
+
+  const loadTranches = useCallback(() => {
+    apiF.tranches(id).then(setTranches).catch(() => setTranches(null));
+  }, [id]);
+  useEffect(() => {
+    loadTranches();
+  }, [loadTranches, milestones]);
+
+  async function onRelease(milestone: string) {
+    setReleaseBusy(milestone);
+    setReleaseNote(null);
+    setError(null);
+    try {
+      const r = await apiF.releaseTranche(id, milestone);
+      setReleaseNote(
+        r.already_released
+          ? `${milestone} was already released: batch ${r.paypal_batch_id}.`
+          : `${milestone} released ${money(r.amount_cents)} to the supplier: batch ${r.paypal_batch_id}, ledger #${r.ledger_seq ?? '—'}.`,
+      );
+      await refreshAll();
+      await refreshLedger();
+      loadTranches();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setReleaseBusy(null);
+    }
+  }
+
   const snapshot = useRef('');
   // W-6: the live injection panel.
   const [injectText, setInjectText] = useState('');
@@ -283,14 +317,30 @@ export default function DropPage() {
   return (
     <>
       <div className="card">
+        <p className="eyebrow">Drop plan</p>
         <h1>{drop.title} — {drop.city}</h1>
-        <p className="muted">
-          Budget {money(drop.budget_cents)} · Day 0 = {drop.start_date}
-          {seeded && <> · <span className="badge badge-seed">SEED DEMO DATA (Channel3 unavailable)</span></>}
-          {!seeded && <> · <span className="badge badge-live">Live Channel3 results</span></>}
-        </p>
+        <div className="stat-row">
+          <div className="stat"><span className="stat-label">Budget</span><span className="stat-value">{money(drop.budget_cents)}</span></div>
+          <div className="stat"><span className="stat-label">Day 0</span><span className="stat-value">{drop.start_date}</span></div>
+          <div className="stat"><span className="stat-label">Products</span><span className="stat-value">{products.length}</span></div>
+          <div className="stat">
+            <span className="stat-label">Source</span>
+            <span>
+              {seeded ? <span className="badge badge-seed">SEED DEMO DATA (Channel3 unavailable)</span> : <span className="badge badge-live">Live Channel3 results</span>}
+            </span>
+          </div>
+        </div>
         <p><Link to={`/drop/${id}/store`} data-demo="open-storefront">Open storefront</Link> · <Link to={`/drop/${id}/evidence`}>Evidence</Link> · <Link to={`/drop/${id}/studio`}>Open the AG Studio dashboard for this drop</Link></p>
-        {drop.plan_text && <p data-demo="plan"><b>Plan:</b> {drop.plan_text}</p>}
+        {drop.plan_text && (
+          <>
+            <p data-demo="plan" className={`plan-text${planOpen ? ' plan-open' : ''}`}><b>Plan:</b> {drop.plan_text}</p>
+            {drop.plan_text.length > 180 && (
+              <button type="button" className="plan-toggle" aria-expanded={planOpen} onClick={() => setPlanOpen((o) => !o)}>
+                {planOpen ? 'Show less' : 'Read more'}
+              </button>
+            )}
+          </>
+        )}
       </div>
 
       <div className="card">
@@ -404,6 +454,42 @@ export default function DropPage() {
             )}
           </div>
         )}
+        <div className="tranche-panel">
+          <h3>Supplier tranches (staged payouts)</h3>
+          {tranches ? (
+            <>
+              <p className="muted">
+                Supplier pool {money(tranches.pool_accrued_cents)} · released {money(tranches.released_cents)} · still to release {money(tranches.unreleased_cents)}
+                {' '}({tranches.staged_orders} captured order{tranches.staged_orders === 1 ? '' : 's'} staged)
+              </p>
+              <ul>
+                {tranches.tranches.map((t) => {
+                  const m = milestones.find((x) => x.title === t.milestone);
+                  const paid = m?.paypal_status === 'paid';
+                  return (
+                    <li key={t.milestone}>
+                      <b>{t.milestone}</b> · {t.pct}% cumulative ·{' '}
+                      {t.released
+                        ? <>released {money(t.amount_cents ?? 0)} · batch <code>{t.paypal_batch_id}</code></>
+                        : <>{money(t.next_amount_cents ?? 0)} to release</>}
+                      {!t.released && (
+                        <>
+                          {' '}
+                          <button onClick={() => onRelease(t.milestone)} disabled={releaseBusy !== null || (t.next_amount_cents ?? 0) <= 0} title={paid ? undefined : 'Releases the tranche and completes the milestone'}>
+                            {releaseBusy === t.milestone ? 'Releasing…' : 'Mark complete & release'}
+                          </button>
+                        </>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+              {releaseNote && <p className="muted">{releaseNote}</p>}
+            </>
+          ) : (
+            <p className="muted">Tranche status unavailable.</p>
+          )}
+        </div>
         <h3>Supplier holds (PayPal authorizations)</h3>
         <ul>
           {holds.map((h) => (
@@ -435,22 +521,25 @@ export default function DropPage() {
 
       <div className="card" id="products" data-demo="products">
         <h2>Pick products</h2>
-        <p className="muted">Select rows to add them to the pre-order.</p>
         <SearchSets products={products} />
         <ProductGrid products={products} onSelectionChange={setSelected} selectedIds={replanSel?.ids} />
-        <div className="row" style={{ marginTop: 16 }}>
-          <div className="total">Selected: {selected.length} · Total {money(total)}</div>
-          <button
-            disabled={selected.length === 0 || refused}
-            title={refused ? 'Refused by the mandate: change the selection' : undefined}
-            onClick={() => {
-              sessionStorage.setItem(`droplab:selection:${id}`, JSON.stringify(items));
-              navigate(`/drop/${id}/checkout`);
-            }}
-          >
-            {refused ? 'Refused by mandate' : 'Continue to checkout'}
-          </button>
-        </div>
+        {selected.length === 0 ? (
+          <p className="muted pick-hint">Select rows to add them to the pre-order.</p>
+        ) : (
+          <div className="pick-bar">
+            <div className="total">Selected: {selected.length} · Total {money(total)}</div>
+            <button
+              disabled={refused}
+              title={refused ? 'Refused by the mandate: change the selection' : undefined}
+              onClick={() => {
+                sessionStorage.setItem(`droplab:selection:${id}`, JSON.stringify(items));
+                navigate(`/drop/${id}/checkout`);
+              }}
+            >
+              {refused ? 'Refused by mandate' : 'Continue to checkout'}
+            </button>
+          </div>
+        )}
         <p className="muted"><Link to="/create">Plan another drop</Link></p>
       </div>
 

@@ -138,6 +138,15 @@ export interface NegotiationOutcome {
   status: string;
 }
 
+/** Staged supplier payouts (server math; the client only sends the milestone title). */
+export interface TrancheStatus {
+  pool_accrued_cents: number;
+  released_cents: number;
+  unreleased_cents: number;
+  staged_orders: number;
+  tranches: { milestone: string; pct: number; released: boolean; amount_cents: number | null; paypal_batch_id: string | null; ledger_seq: number | null; next_amount_cents: number | null }[];
+}
+
 export const apiF = {
   scheduleChanged: (dropId: string, milestone_title: string) =>
     api<{ approval_invalidated: boolean; voided_hold: string | null; rebooked_hold: string | null; approval_url: string | null }>(`/drops/${dropId}/schedule-changed`, { method: 'POST', body: JSON.stringify({ milestone_title }) }),
@@ -202,6 +211,12 @@ export const apiF = {
     ),
   authorizeHold: (dropId: string, holdId: string, order_id: string) =>
     api<{ status: string; paypal_authorization_id: string }>(`/drops/${dropId}/holds/${holdId}/authorize`, { method: 'POST', body: JSON.stringify({ order_id }) }),
+  tranches: (dropId: string) => api<TrancheStatus>(`/drops/${dropId}/tranches`),
+  releaseTranche: (dropId: string, milestone: string) =>
+    api<{ milestone: string; amount_cents: number; paypal_batch_id: string; ledger_seq: number | null; already_released?: boolean }>(
+      `/drops/${dropId}/milestones/${encodeURIComponent(milestone)}/release`,
+      { method: 'POST' },
+    ),
 };
 
 export interface PayoutItem {

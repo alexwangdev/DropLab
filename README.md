@@ -139,3 +139,5 @@ Only the steps below remain, and each is yours. See [SUBMISSION_CHECKLIST.md](SU
 2. **Video**: record and upload to YouTube, under three minutes, using `devpost/video-script.md`.
 3. **Devpost submission**: paste `devpost/description.md` and `devpost/tools.md`.
 4. **AG Grid trial key extension**: the request is drafted in [docs/ag-grid-key-extension.md](docs/ag-grid-key-extension.md). It is not confirmed sent. The key deactivates on 8 December 2026.
+
+- Supplier share is released in stages by Gantt milestone (Ship 40% / Sell 40% / Payout 20%), each tranche its own Payouts batch on the hash-chained ledger.

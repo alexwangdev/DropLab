@@ -58,6 +58,8 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       name: m.title,
       owner: m.resource ?? '', // from the milestone record (server), not a client map
       status: m.paypal_status === 'paid' ? 'Paid' : 'Planned',
+      // U-3: a stronger named colour for planned bars (Bryntum's named colours), so they read on camera.
+      eventColor: 'indigo',
       hold: holdByTitle.get(m.title)?.amount_cents ?? null,
       startDate: day(m.start_day),
       duration: m.start_day === m.end_day ? 0 : m.end_day - m.start_day + 1,
@@ -170,7 +172,7 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       if (!rec) continue;
       rec.set({
         status: m.paypal_status === 'paid' ? 'Paid' : 'Planned',
-        eventColor: alertSet.has(m.title) ? 'red' : m.paypal_status === 'paid' ? 'green' : undefined,
+        eventColor: alertSet.has(m.title) ? 'red' : m.paypal_status === 'paid' ? 'green' : 'indigo',
       });
     }
     g.refresh();

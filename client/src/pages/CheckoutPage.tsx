@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api_, apiF, ApiError, money, type PayoutItem, type Product, type SellThrough } from '../api';
-import MoneyWaterfall from '../components/MoneyWaterfall';
+import MoneyWaterfall, { ROLE_LABEL, truncateEmail } from '../components/MoneyWaterfall';
 
 type Stage = 'review' | 'redirecting' | 'capturing' | 'done' | 'cancelled' | 'error' | 'gate';
 
@@ -143,37 +143,39 @@ export default function CheckoutPage() {
   if (stage === 'done' && captured) {
     return (
       <div className="card">
-        {sellAfter && isCompleted(captured) && (
+        {sellAfter && isCompleted(captured) ? (
           <div className="joined" data-demo="joined">
+            <p className="eyebrow">Payment captured</p>
             <h1>You're in — #{sellAfter.sold} of {sellAfter.capacity}</h1>
             <p className="muted">Your pre-order is captured on PayPal (sandbox).</p>
           </div>
+        ) : (
+          <h1>Payment captured</h1>
         )}
-        <h1>Payment captured</h1>
-        <p><b>PayPal order ID:</b> {captured.paypal_order_id}</p>
-        <p><b>PayPal capture ID:</b> {captured.paypal_capture_id ?? '—'}</p>
-        <p><b>Status:</b> {captured.status}</p>
-        <p className="total">Total {money(captured.total_cents)}</p>
-        <p className="muted">Sandbox only. No real money moved.</p>
         <h2 data-demo="waterfall">Where the money goes</h2>
         <MoneyWaterfall totalCents={captured.total_cents} items={batch?.items ?? null} batchId={batch?.id ?? null} />
+        <dl className="id-block">
+          <dt>PayPal order ID</dt><dd>{captured.paypal_order_id}</dd>
+          <dt>PayPal capture ID</dt><dd>{captured.paypal_capture_id ?? '—'}</dd>
+          <dt>Status</dt><dd>{captured.status}</dd>
+          <dt>Total</dt><dd>{money(captured.total_cents)}</dd>
+          {batch && <><dt>Payouts batch ID</dt><dd>{batch.id}</dd></>}
+        </dl>
         {!batch && (
           <button data-demo="split-payout" onClick={onPayout} disabled={payoutBusy}>
             {payoutBusy ? 'Sending payout…' : 'Split payout (70/20/10)'}
           </button>
         )}
         {batch && (
-          <div>
-            <p><b>Payouts batch ID:</b> {batch.id}</p>
-            <ul>
-              {batch.items.map((i) => (
-                <li key={i.sender_item_id}>
-                  {i.role} · {i.recipient_email} · {money(i.amount_cents)} · {i.status ?? 'PENDING'}
-                </li>
-              ))}
-            </ul>
-          </div>
+          <ul className="payout-list">
+            {batch.items.map((i) => (
+              <li key={i.sender_item_id}>
+                {ROLE_LABEL[i.role] ?? i.role} · {truncateEmail(i.recipient_email)} · {money(i.amount_cents)} · {i.status ?? 'PENDING'}
+              </li>
+            ))}
+          </ul>
         )}
+        <p className="sandbox-note">Sandbox only. No real money moved.</p>
         {error && <div className="error">{error}</div>}
         <p><Link to={`/drop/${id}/store`}>Back to storefront</Link> · <Link to={`/drop/${id}`}>Back to drop</Link></p>
       </div>

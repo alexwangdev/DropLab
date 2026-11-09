@@ -39,3 +39,5 @@ Creators and small shops running short pop-ups who want an agent to plan the dro
 - Critical path and baselines are not in the Bryntum Community tier that this build uses.
 - No margin chart: there is no supplier cost data.
 - The AG Grid trial key expires on 8 December 2026. Judging runs to 15 December.
+
+- Supplier share is released in stages by Gantt milestone (Ship 40% / Sell 40% / Payout 20%), each tranche its own Payouts batch on the hash-chained ledger.

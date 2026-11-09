@@ -60,7 +60,7 @@ export default function PayoutChart({ split, batchRef }: { split: SplitRow[] | n
           onGridReady={onGridReady}
         />
       </div>
-      <div ref={chartHost} style={{ height: 300, marginTop: 12 }} />
+      <div ref={chartHost} data-demo="payout-pie" style={{ height: 300, marginTop: 12 }} />
     </div>
   );
 }

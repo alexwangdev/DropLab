@@ -5,7 +5,7 @@ import { AG_GRID_LICENSE_KEY, AG_STUDIO_LICENSE_KEY, BRYNTUM_LICENSE_KEY, CLIENT
 import { migrate, pool } from './db.js';
 import { recheckProduct, searchProducts } from './channel3.js';
 import { searchWithFallback } from './channel3-mcp.js';
-import { authorizeOrder, captureAuthorization, captureOrder, createOrder, createPayout, getPayout, PayPalError, refundCapture, voidAuthorization } from './paypal.js';
+import { authorizeOrder, captureOrder, createOrder, createPayout, getPayout, PayPalError, refundCapture, voidAuthorization } from './paypal.js';
 import { seedProducts } from './seed.js';
 import { planWithLLM } from './planner.js';
 import { SEARCH_LIMIT } from './search-limit.js';
@@ -15,6 +15,7 @@ import { splitCents } from './money.js';
 import { cartTotal, evaluateMandate, planHash, type Line, type MandateRules, type RuleFired, type Verdict } from './mandate.js';
 import { gateDecision, type GateChange } from './gate.js';
 import { decidePayout } from './payout.js';
+import { cancelRefundsCents, isTrancheMilestone, previousTranche, trancheAmountCents, TRANCHE_CUMULATIVE_PCT, TRANCHE_ORDER } from './tranches.js';
 import { verifyChain } from './ledger.js';
 import { negotiate } from './negotiate.js';
 import { chooseSubstitutes } from './substitute.js';
@@ -571,6 +572,16 @@ function payoutRecipients() {
   ];
 }
 
+/**
+ * The split as the checkout shows it: the PayPal items, plus the supplier's staged share (not a PayPal item).
+ * A batch from before the staged rule already has a supplier item, so nothing is added to it.
+ */
+function withStaged(items: { role: string; amount_cents: number; [k: string]: unknown }[], order: store.Order): Record<string, unknown>[] {
+  if (items.some((i) => i.role === 'supplier')) return items;
+  const split = splitCents(order.total_cents);
+  return [...items, { role: 'supplier', amount_cents: split.supplier, status: 'STAGED', recipient_email: '' }];
+}
+
 /** Creates the payout for a captured order, or reuses the existing batch. Shared by the route and the demo. */
 async function payoutForOrder(orderId: string): Promise<{ status: number; body: Record<string, unknown> }> {
   const order = await store.getOrder(orderId);
@@ -578,11 +589,13 @@ async function payoutForOrder(orderId: string): Promise<{ status: number; body: 
   const existing = await store.getPayoutForOrder(order.paypal_order_id);
   const decision = decidePayout({ orderStatus: order.status, hasCapture: !!order.paypal_capture_id, existingBatchId: existing?.batch_id ?? null });
   if (decision.action === 'reject') return { status: decision.status, body: { error: decision.error } };
-  if (decision.action === 'reuse') return { status: 200, body: { paypal_batch_id: decision.batch_id, items: existing?.items ?? [], reused: true } };
+  if (decision.action === 'reuse') return { status: 200, body: { paypal_batch_id: decision.batch_id, items: withStaged(existing?.items ?? [], order), reused: true } };
 
-  const recipients = payoutRecipients();
+  // Staged rule (Option A): the at-capture batch pays creator and platform only. The supplier's share is not paid
+  // here; it accrues to the drop's supplier pool and is released by milestone (see tranches.ts).
+  const recipients = payoutRecipients().filter((r) => r.role !== 'supplier');
   if (recipients.some((r) => !r.email)) {
-    return { status: 500, body: { error: 'PAYOUT_CREATOR_EMAIL, PAYOUT_SUPPLIER_EMAIL and PAYOUT_PLATFORM_EMAIL must be set in .env' } };
+    return { status: 500, body: { error: 'PAYOUT_CREATOR_EMAIL and PAYOUT_PLATFORM_EMAIL must be set in .env' } };
   }
   const split = splitCents(order.total_cents);
   const amounts = { creator: split.creator, supplier: split.supplier, platform: split.platform };
@@ -616,10 +629,10 @@ async function payoutForOrder(orderId: string): Promise<{ status: number; body: 
         amount_cents: order.total_cents,
         paypal_ref: record.batch_id,
         verdict: result.batch_header.batch_status ?? null,
-        detail: { splits: items.map((i) => ({ role: i.role, amount_cents: i.amount_cents })) },
+        detail: { splits: [...items.map((i) => ({ role: i.role, amount_cents: i.amount_cents })), { role: 'supplier', amount_cents: split.supplier, staged: true }] },
       });
     });
-    return { status: 201, body: { paypal_batch_id: record.batch_id, batch_status: result.batch_header.batch_status, items } };
+    return { status: 201, body: { paypal_batch_id: record.batch_id, batch_status: result.batch_header.batch_status, items: withStaged(items, order) } };
   } catch (e) {
     return errorBody(e, 'create payout');
   }
@@ -661,6 +674,183 @@ app.get('/api/paypal/payouts/:batch_id', route(async (req, res) => {
     });
   } catch (e) {
     handleError(res, e, 'get payout');
+  }
+}));
+
+// ---------- staged supplier payouts (Option A, see docs/staged-payouts.md) ----------
+
+/** Thrown inside the release transaction to refuse with a named reason. Nothing is written when it is thrown. */
+class ReleaseRefusal extends Error {
+  constructor(public status: number, public reason: string, message: string) {
+    super(message);
+  }
+}
+
+/** The drop's supplier pool: the supplier share of every staged captured order, minus what is already released. */
+async function supplierPool(dropId: string) {
+  const staged = await gov.stagedOrders(dropId);
+  const accrued = staged.reduce((sum, o) => sum + splitCents(o.total_cents).supplier, 0);
+  const released = await gov.releasedCents(dropId);
+  return { staged, accrued, released, unreleased: accrued - released };
+}
+
+// GET /api/drops/:id/tranches -> pool, releases so far, and the next amount per paying milestone
+app.get('/api/drops/:id/tranches', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const pool = await supplierPool(drop.id);
+  const done = await gov.listTranches(drop.id);
+  res.json({
+    pool_accrued_cents: pool.accrued,
+    released_cents: pool.released,
+    unreleased_cents: pool.unreleased,
+    staged_orders: pool.staged.length,
+    tranches: TRANCHE_ORDER.map((m) => {
+      const t = done.find((x) => x.milestone === m);
+      return {
+        milestone: m,
+        pct: TRANCHE_CUMULATIVE_PCT[m],
+        released: !!t,
+        amount_cents: t ? t.amount_cents : null,
+        paypal_batch_id: t ? t.batch_id : null,
+        ledger_seq: t ? t.ledger_seq : null,
+        next_amount_cents: t ? null : trancheAmountCents(pool.accrued, pool.released, m),
+      };
+    }),
+  });
+}));
+
+// POST /api/drops/:id/milestones/:title/release -> completes the milestone and pays the supplier's tranche, atomically.
+// Checks run in this order; the first failure refuses with a named reason and writes nothing:
+// NO_TRANCHE, OUT_OF_ORDER, (already released: 200 with the existing batch), MANDATE_NOT_CLEARED, PLAN_HASH_MISMATCH,
+// NOTHING_TO_RELEASE. The amount is computed here from the captures and the ledger. The client sends only the title.
+app.post('/api/drops/:id/milestones/:title/release', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const title = req.params.title;
+  const milestones = await store.getMilestones(drop.id);
+  const m = milestones.find((x) => x.title === title);
+  if (!m) return res.status(404).json({ error: `milestone ${title} not found`, reason: 'NOT_FOUND' });
+  if (!isTrancheMilestone(title)) return res.status(409).json({ error: `${title} has no supplier tranche`, reason: 'NO_TRANCHE' });
+
+  const tranches = await gov.listTranches(drop.id);
+  const prev = previousTranche(title);
+  const orderPaid = milestones.find((x) => x.title === 'Order')?.paypal_status === 'paid';
+  const prevReleased = prev ? tranches.some((t) => t.milestone === prev) : orderPaid;
+  if (!prevReleased) {
+    return res.status(409).json({ error: prev ? `${prev} must be released before ${title}` : 'Order must be complete before Ship', reason: 'OUT_OF_ORDER' });
+  }
+  const existing = tranches.find((t) => t.milestone === title);
+  if (existing) {
+    return res.json({ milestone: title, already_released: true, paypal_batch_id: existing.batch_id, amount_cents: existing.amount_cents, ledger_seq: existing.ledger_seq });
+  }
+
+  try {
+    const out = await gov.tx(async (c) => {
+      // Lock the drop first: two releases on one drop run one at a time.
+      await c.query('SELECT id FROM drops WHERE id = $1 FOR UPDATE', [drop.id]);
+      const again = (await gov.listTranches(drop.id, c as any)).find((t) => t.milestone === title);
+      if (again) return { kind: 'replay' as const, row: again };
+
+      const mandate = await gov.getMandate(drop.id, c as any);
+      if (!mandate || mandate.status === 'draft') throw new ReleaseRefusal(409, 'MANDATE_NOT_CLEARED', 'the mandate has not been approved for this plan');
+      if (mandate.status === 'invalidated') throw new ReleaseRefusal(409, 'PLAN_HASH_MISMATCH', 'the approved plan changed; re-approve it before releasing money');
+      const approval = (await c.query("SELECT detail FROM ledger_entries WHERE drop_id = $1 AND kind = 'approval' ORDER BY seq DESC LIMIT 1", [drop.id])).rows[0];
+      const lines: Line[] = (approval?.detail?.lines as Line[]) ?? [];
+      const ev = evaluateMandate(rulesFrom(drop, mandate), lines, new Date());
+      if (ev.verdict !== 'Cleared') throw new ReleaseRefusal(409, 'MANDATE_NOT_CLEARED', `the mandate verdict is ${ev.verdict}, not Cleared`);
+      if (!mandate.plan_hash || planHash(lines) !== mandate.plan_hash) throw new ReleaseRefusal(409, 'PLAN_HASH_MISMATCH', 'the approved plan hash does not match the plan');
+
+      const pool = await supplierPool(drop.id);
+      const amount = trancheAmountCents(pool.accrued, pool.released, title);
+      if (amount <= 0) throw new ReleaseRefusal(409, 'NOTHING_TO_RELEASE', 'the supplier pool has nothing to release for this milestone');
+
+      const supplierEmail = process.env.PAYOUT_SUPPLIER_EMAIL ?? '';
+      if (!supplierEmail) throw new ReleaseRefusal(500, 'CONFIG', 'PAYOUT_SUPPLIER_EMAIL must be set in .env');
+      const pct = TRANCHE_CUMULATIVE_PCT[title];
+      const senderBatchId = `droplab-${drop.id}-${title}-v1`;
+      // The PayPal call is inside the transaction: if it throws, the milestone mark and the ledger rows roll back.
+      const r = await createPayout(
+        senderBatchId,
+        `DropLab ${title} tranche`,
+        [{ sender_item_id: `${drop.id}-${title}`, recipient_email: supplierEmail, amount_cents: amount, currency: 'USD', note: `DropLab supplier tranche ${title}` }],
+        `release-${drop.id}-${title}`,
+      );
+      const batchRef = r.batch_header.payout_batch_id;
+      await store.markMilestonePaidTx(c, drop.id, title);
+      await gov.appendLedger(c, drop.id, { kind: 'milestone_completed', actor: 'server', amount_cents: 0, verdict: 'Paid', detail: { milestone: title } });
+      const entry = await gov.appendLedger(c, drop.id, {
+        kind: 'payout_tranche',
+        actor: 'paypal',
+        amount_cents: amount,
+        paypal_ref: batchRef,
+        verdict: r.batch_header.batch_status ?? null,
+        detail: { milestone: title, tranche_pct: pct, pool_accrued_cents: pool.accrued, already_released_cents: pool.released, sender_batch_id: senderBatchId },
+      });
+      await gov.insertTrancheTx(c, { drop_id: drop.id, milestone: title, pct, pool_accrued_cents: pool.accrued, amount_cents: amount, batch_id: batchRef, ledger_seq: entry.seq });
+      return { kind: 'done' as const, amount, batchRef, seq: entry.seq, pct };
+    });
+    if (out.kind === 'replay') {
+      return res.json({ milestone: title, already_released: true, paypal_batch_id: out.row.batch_id, amount_cents: out.row.amount_cents, ledger_seq: out.row.ledger_seq });
+    }
+    res.status(201).json({ milestone: title, tranche_pct: out.pct, amount_cents: out.amount, paypal_batch_id: out.batchRef, ledger_seq: out.seq });
+  } catch (e) {
+    if (e instanceof ReleaseRefusal) return res.status(e.status).json({ error: e.message, reason: e.reason });
+    handleError(res, e, 'release tranche');
+  }
+}));
+
+// POST /api/drops/:id/cancel -> refunds the UNRELEASED supplier pool to the buyers whose orders staged it (pro-rata by
+// captured amount). Released tranches and creator/platform shares paid at capture are NOT clawed back.
+app.post('/api/drops/:id/cancel', route(async (req, res) => {
+  const drop = await store.getDrop(req.params.id);
+  if (!drop) return res.status(404).json({ error: 'drop not found' });
+  const done = await pool.query("SELECT 1 FROM ledger_entries WHERE drop_id = $1 AND kind = 'drop_cancelled'", [drop.id]);
+  if (done.rows[0]) return res.status(409).json({ error: 'drop is already cancelled', reason: 'ALREADY_CANCELLED' });
+  const tranches = await gov.listTranches(drop.id);
+  if (tranches.some((t) => t.milestone === 'Payout')) {
+    return res.status(409).json({ error: 'the Payout tranche is already released; there is nothing left to cancel', reason: 'ALREADY_RELEASED' });
+  }
+  const sp = await supplierPool(drop.id);
+  const plan = cancelRefundsCents(sp.staged.map((o) => ({ order_id: o.paypal_order_id, captured_cents: o.total_cents })), sp.unreleased);
+  const refunds: { paypal_ref: string; amount_cents: number }[] = [];
+  try {
+    for (const r of plan) {
+      if (r.amount_cents <= 0) continue;
+      const order = sp.staged.find((o) => o.paypal_order_id === r.order_id)!;
+      const prior = await pool.query("SELECT paypal_ref FROM ledger_entries WHERE drop_id = $1 AND kind = 'payout_tranche_refund' AND detail->>'paypal_order_id' = $2", [drop.id, order.paypal_order_id]);
+      if (prior.rows[0]) {
+        refunds.push({ paypal_ref: prior.rows[0].paypal_ref, amount_cents: r.amount_cents });
+        continue;
+      }
+      if (!order.paypal_capture_id) throw new Error(`order ${order.paypal_order_id} has no capture id`);
+      // Request id tied to drop and order: a retried cancel cannot refund the same order twice.
+      const refund = await refundCapture(order.paypal_capture_id, r.amount_cents, 'USD', `cancel-${drop.id}-${order.paypal_order_id}`);
+      await gov.tx(async (c) => {
+        await gov.appendLedger(c, drop.id, {
+          kind: 'payout_tranche_refund',
+          actor: 'paypal',
+          amount_cents: r.amount_cents,
+          paypal_ref: refund.id,
+          verdict: refund.status,
+          detail: { paypal_order_id: order.paypal_order_id, capture_id: order.paypal_capture_id, reason: 'drop_cancelled' },
+        });
+      });
+      refunds.push({ paypal_ref: refund.id, amount_cents: r.amount_cents });
+    }
+    const refunded = refunds.reduce((s, r) => s + r.amount_cents, 0);
+    await gov.tx(async (c) => {
+      await gov.appendLedger(c, drop.id, { kind: 'drop_cancelled', actor: 'organiser', amount_cents: 0, verdict: 'Cancelled', detail: { refunded_cents: refunded, unreleased_cents: sp.unreleased } });
+      await c.query("UPDATE drops SET status = 'cancelled' WHERE id = $1", [drop.id]);
+    });
+    res.json({
+      cancelled: true,
+      refunded_cents: refunded,
+      refunds,
+      limitation: 'Creator and platform shares already paid at capture are not clawed back, and released supplier tranches are not reversed (Payouts cannot be reversed).',
+    });
+  } catch (e) {
+    handleError(res, e, 'cancel drop');
   }
 }));
 
@@ -792,31 +982,23 @@ app.post('/api/drops/:id/holds/:hid/void', route(async (req, res) => {
   res.json({ ...hold, status: 'voided', released_cents: hold.amount_cents });
 }));
 
-// POST /api/drops/:id/holds/:hid/capture -> captures the actual supplier share (PayPal capture for a real authorization), releases the rest
+// POST /api/drops/:id/holds/:hid/capture. Option A: holds are evidence only. This route never takes the supplier's
+// money: it releases the buyer's PayPal authorization (void) and closes the hold. The supplier is paid by the staged
+// tranches (POST /api/drops/:id/milestones/:title/release), so no second supplier payment path exists.
 app.post('/api/drops/:id/holds/:hid/capture', route(async (req, res) => {
   const hold = await gov.getHold(req.params.hid);
   if (!hold || hold.drop_id !== req.params.id) return res.status(404).json({ error: 'hold not found' });
   if (hold.status !== 'held') return res.status(409).json({ error: `hold is already ${hold.status}` });
-  const sales = await gov.completedSalesCents(hold.drop_id);
-  const actual = Math.floor((sales * SUPPLIER_SHARE_PCT) / 100);
-  const captured = Math.min(actual, hold.amount_cents);
-  const released = hold.amount_cents - captured;
-  let paypalCaptureId: string | null = null;
   try {
-    if (hold.paypal_authorization_id && captured > 0) {
-      const r = await captureAuthorization(hold.paypal_authorization_id, captured, 'USD', randomUUID());
-      paypalCaptureId = r?.id ?? null;
-    } else if (hold.paypal_authorization_id) {
-      await voidAuthorization(hold.paypal_authorization_id, randomUUID());
-    }
+    if (hold.paypal_authorization_id) await voidAuthorization(hold.paypal_authorization_id, randomUUID());
   } catch (e) {
-    return handleError(res, e, 'capture authorization');
+    return handleError(res, e, 'release authorization');
   }
   await gov.tx(async (c) => {
-    await gov.closeHold(c, hold.id, 'captured', captured, released);
-    await gov.appendLedger(c, hold.drop_id, { kind: 'hold_captured', actor: hold.paypal_authorization_id ? 'paypal' : 'server', amount_cents: captured, paypal_ref: paypalCaptureId, verdict: 'Captured', detail: { hold_id: hold.id, milestone: hold.milestone_title, held_cents: hold.amount_cents, released_cents: released, sales_cents: sales, paypal_authorization_id: hold.paypal_authorization_id } });
+    await gov.closeHold(c, hold.id, 'voided', 0, hold.amount_cents);
+    await gov.appendLedger(c, hold.drop_id, { kind: 'hold_released', actor: hold.paypal_authorization_id ? 'paypal' : 'server', amount_cents: 0, paypal_ref: hold.paypal_authorization_id, verdict: 'Released', detail: { hold_id: hold.id, milestone: hold.milestone_title, held_cents: hold.amount_cents, reason: 'holds are evidence only; supplier is paid by staged tranches' } });
   });
-  res.json({ ...hold, status: 'captured', captured_cents: captured, released_cents: released, paypal_capture_id: paypalCaptureId });
+  res.json({ ...hold, status: 'voided', captured_cents: 0, released_cents: hold.amount_cents });
 }));
 
 // POST /api/drops/:id/schedule-changed { milestone_title }
