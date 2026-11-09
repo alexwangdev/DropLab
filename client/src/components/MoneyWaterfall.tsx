@@ -42,13 +42,19 @@ export default function MoneyWaterfall({ totalCents, items }: { totalCents: numb
         {ORDER.map((role) => {
           const item = byRole.get(role);
           const share = paid && item && totalCents > 0 ? item.amount_cents / totalCents : 0;
+          // A staged share is not paid yet: it is labelled STAGED and its amount reads as staged, never as paid.
+          const staged = item?.status === 'STAGED';
           return (
-            <div key={role} className="waterfall-bucket" data-role={role}>
+            <div key={role} className={`waterfall-bucket${staged ? ' waterfall-bucket-staged' : ''}`} data-role={role}>
               <div className="waterfall-column">
                 <div className="waterfall-fill" style={{ transform: `scaleY(${share})` }} />
               </div>
               <div className="waterfall-label">{ROLE_LABEL[role]} {SHARE[role]}</div>
-              <div className="waterfall-amount">{paid && item ? money(item.amount_cents) : 'Payout pending'}</div>
+              {staged ? (
+                <div className="waterfall-amount waterfall-staged">STAGED · {money(item!.amount_cents)} · released by milestone</div>
+              ) : (
+                <div className="waterfall-amount">{paid && item ? money(item.amount_cents) : 'Payout pending'}</div>
+              )}
             </div>
           );
         })}

@@ -141,6 +141,8 @@ button:disabled { background: var(--c-disabled); cursor: not-allowed; }
 .waterfall-label::before { content: ""; width: 10px; height: 10px; border-radius: 3px; background: var(--bucket, var(--c-primary)); flex: 0 0 10px; }
 .waterfall-amount { font-variant-numeric: tabular-nums; font-size: var(--text-md); font-weight: 700; }
 .waterfall-pending .waterfall-amount { color: var(--c-muted); font-size: var(--text-sm); font-weight: 600; }
+.waterfall-staged { color: var(--c-supplier); font-size: var(--text-sm); font-weight: 700; letter-spacing: 0.02em; }
+.waterfall-bucket-staged .waterfall-column { background: repeating-linear-gradient(135deg, var(--c-track), var(--c-track) 6px, #f0f2f6 6px, #f0f2f6 12px); }
 
 /* Receipt block: each ID once, mono, compact */
 .id-block { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px var(--space-4); background: var(--c-paper); border-radius: var(--radius-sm); padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font-size: 13px; }
@@ -159,3 +161,31 @@ code { font-family: var(--font-mono); font-size: 0.92em; }
   .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .waterfall-total-amount { font-size: 32px; }
 }
+
+/* Supplier tranche rows on the Drop page: text and button on one line, a fixed gap between rows. */
+.tranche-panel ul { list-style: none; padding: 0; margin: var(--space-3) 0 0; }
+.tranche-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); flex-wrap: wrap; padding: var(--space-3) 0; border-top: 1px solid var(--c-border); }
+.tranche-row:first-child { border-top: 0; }
+.tranche-text { flex: 1 1 320px; min-width: 0; font-size: var(--text-sm); }
+.tranche-button { flex: 0 0 auto; white-space: nowrap; }
+
+/* Checkboxes keep their natural size. The general input rule (full width, padding) is for text fields only. */
+input[type="checkbox"] { display: inline-block; width: auto; margin: 0; padding: 0; border: 0; font-size: inherit; flex: 0 0 auto; }
+
+/* Storefront cart: add-to-cart checkboxes and the selection bar. */
+.store-pick { display: flex; align-items: center; gap: var(--space-2); margin-top: var(--space-2); font-size: var(--text-sm); color: var(--c-muted); font-weight: 600; cursor: pointer; }
+.store-pick input { margin: 0; }
+.store-cart { position: sticky; bottom: var(--space-3); background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--radius-md); box-shadow: var(--shadow-3); padding: var(--space-3) var(--space-4); display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); margin-top: var(--space-3); }
+
+/* Verify chain: the spinner and the check sit next to the button, not stretched across the row. */
+.row > .spinner, .row > .check-in { flex: 0 0 auto; min-width: 0; }
+
+/* Centred button rows (Verify chain on the Ledger, Block in the injection panel). */
+.row.row-center { justify-content: center; text-align: center; }
+.row.row-center > * { flex: 0 1 auto; }
+.row.row-center { flex-wrap: nowrap; }
+.row.row-center > span { min-width: 0; text-align: left; }
+.row.row-center { align-items: center; }
+/* Left-aligned, top-aligned button row (the Block row in the injection panel). */
+.row.row-top-left { justify-content: flex-start; align-items: center; flex-wrap: nowrap; }
+.row.row-top-left > * { flex: 0 1 auto; }

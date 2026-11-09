@@ -163,7 +163,7 @@ export default function CheckoutPage() {
         </dl>
         {!batch && (
           <button data-demo="split-payout" onClick={onPayout} disabled={payoutBusy}>
-            {payoutBusy ? 'Sending payout…' : 'Split payout (70/20/10)'}
+            {payoutBusy ? 'Sending payout…' : 'Pay creator + platform now (supplier staged)'}
           </button>
         )}
         {batch && (

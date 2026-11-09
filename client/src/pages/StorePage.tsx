@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api_, money, type Drop, type MandateRow, type Product, type SellThrough } from '../api';
 import { closeInstant, formatCountdown } from '../lib/countdown';
@@ -17,6 +17,11 @@ export default function StorePage() {
   const [sell, setSell] = useState<SellThrough | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Cart state. Hooks stay above the early returns below.
+  const [picked, setPicked] = useState<string[]>([]);
+  const pickedProducts = useMemo(() => products.filter((p) => picked.includes(p.id)), [products, picked]);
+  const pickedTotal = pickedProducts.reduce((sum, p) => sum + p.price_cents, 0);
+
 
   useEffect(() => {
     api_
@@ -59,6 +64,18 @@ export default function StorePage() {
     navigate(`/drop/${id}/checkout`);
   }
 
+  // Cart: several products in one checkout. The same selection format as a single reserve, one line per product.
+  const cartBlocked = soldOut || closed;
+  function togglePick(p: Product, on: boolean) {
+    setPicked((prev) => (on ? [...prev.filter((x) => x !== p.id), p.id] : prev.filter((x) => x !== p.id)));
+  }
+  function reserveAll() {
+    const lines = pickedProducts.filter((p) => p.availability === 'InStock').map((p) => ({ product_id: p.id, qty: 1 }));
+    if (lines.length === 0) return;
+    sessionStorage.setItem(`droplab:selection:${id}`, JSON.stringify(lines));
+    navigate(`/drop/${id}/checkout`);
+  }
+
   return (
     <div className="store">
       <header className="store-head">
@@ -69,7 +86,7 @@ export default function StorePage() {
         ) : (
           <div className="countdown" aria-live="off" data-demo="countdown">
             <span className="countdown-label">{closed ? 'Closed' : 'Closes in'}</span>
-            <span className="countdown-value"><span key={closed ? 'closed' : formatCountdown(msLeft)} className="tick">{closed ? '—' : formatCountdown(msLeft)}</span></span>
+            <span className="countdown-value"><span key={closed ? 'closed' : Math.floor(msLeft / 60000)} className="tick">{closed ? '—' : formatCountdown(msLeft)}</span></span>
           </div>
         )}
         <div className="sell-through" data-demo="sell-through">
@@ -97,6 +114,14 @@ export default function StorePage() {
               </div>
               <div className="muted">{p.retailer} · {p.availability}</div>
               <div className="store-price">{money(p.price_cents)}</div>
+              <label className="store-pick">
+                <input
+                  type="checkbox"
+                  checked={picked.includes(p.id)}
+                  disabled={cartBlocked || p.availability !== 'InStock'}
+                  onChange={(e) => togglePick(p, e.target.checked)}
+                />{' '}Add to cart
+              </label>
             </div>
             <button
               className="store-reserve"
@@ -109,6 +134,17 @@ export default function StorePage() {
           </li>
         ))}
       </ul>
+
+      {picked.length > 0 && (
+        <div className="store-cart">
+          <div>
+            <b>{pickedProducts.length} selected</b> · {money(pickedTotal)}
+          </div>
+          <button className="store-reserve" disabled={cartBlocked || pickedProducts.every((p) => p.availability !== 'InStock')} onClick={reserveAll}>
+            Reserve {pickedProducts.length} with PayPal
+          </button>
+        </div>
+      )}
 
       {products.length === 0 && <p className="muted">No products yet. <Link to={`/drop/${id}`}>Plan this drop</Link></p>}
       <p className="muted store-foot">

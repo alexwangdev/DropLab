@@ -117,7 +117,8 @@ export default function TimelineGantt({ startDate, milestones, onWarning, onMove
       viewPreset: 'weekAndDayLetter',
       project: { tasks, dependencies },
       // taskEdit: double-click a task to edit its dates. Saves go through the same change handler as a drag.
-      features: { criticalPaths: true, baselines: true, taskEdit: true },
+      // projectLines off: the Project start / end markers sat on Day 0 and covered the Order milestone's label.
+      features: { criticalPaths: true, baselines: true, taskEdit: true, projectLines: false },
       columns: [
         { type: 'name', field: 'name', width: 180 },
         { text: 'Owner', field: 'owner', width: 100 },

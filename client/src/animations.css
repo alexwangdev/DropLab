@@ -156,16 +156,23 @@ button:active:not(:disabled) {
 @keyframes spin {
   to { transform: rotate(360deg); }
 }
+/* The check takes the spinner's 12 px box and fades in, so the spinner resolves into the check in place. */
 .check-in {
   display: inline-block;
+  width: 12px;
+  height: 12px;
   margin-left: 8px;
   color: #1a7f37;
+  font-size: 12px;
   font-weight: 700;
+  line-height: 12px;
+  text-align: center;
+  vertical-align: middle;
   animation: check-in 300ms ease-out both;
 }
 @keyframes check-in {
-  from { opacity: 0; transform: scale(0.6); }
-  to { opacity: 1; transform: scale(1); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 /* 5. Evidence: a BROKEN badge shakes once and turns red. */

@@ -12,6 +12,8 @@ ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule, Integra
 export interface SplitRow {
   role: string;
   amount_cents: number;
+  /** The supplier share of a staged order: not paid by this batch, released by milestone. */
+  staged?: boolean;
 }
 
 /**
@@ -25,6 +27,9 @@ export default function PayoutChart({ split, batchRef }: { split: SplitRow[] | n
   if (!split || split.length === 0) {
     return <p className="muted">No payout yet. The split chart appears after a sandbox payout completes.</p>;
   }
+
+  // A staged share is labelled, so the pie never shows it as paid.
+  const rows = split.map((r) => (r.staged ? { ...r, role: `${r.role} (staged)` } : r));
 
   const columnDefs: ColDef<SplitRow>[] = [
     { field: 'role', headerName: 'Share', flex: 1 },
@@ -48,12 +53,12 @@ export default function PayoutChart({ split, batchRef }: { split: SplitRow[] | n
   return (
     <div>
       <p className="muted">
-        Source: payout batch <code>{batchRef ?? '—'}</code> (ledger payout entry). The 70/20/10 split comes from server math.
+        Source: payout batch <code>{batchRef ?? '—'}</code> (ledger payout entry). The split comes from server math; a staged supplier share is released by milestone.
       </p>
       <div className="grid-wrap" style={{ height: 160 }}>
         <AgGridReact<SplitRow>
           theme={droplabTheme}
-          rowData={split}
+          rowData={rows}
           columnDefs={columnDefs}
           enableCharts={true}
           cellSelection={true}

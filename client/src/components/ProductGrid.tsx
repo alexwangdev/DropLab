@@ -12,7 +12,7 @@ ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule, AiToolk
 /** Product thumbnail (image from Channel3). Shows a dash when Channel3 sent no image. */
 function ThumbCell(p: ICellRendererParams<Product>) {
   if (!p.value) return <span>—</span>;
-  return <img src={String(p.value)} alt="" width={40} height={40} style={{ objectFit: 'cover', borderRadius: 4 }} />;
+  return <img src={String(p.value)} alt="" width={56} height={56} style={{ objectFit: 'contain', borderRadius: 6, background: '#f3f5f8' }} />;
 }
 
 interface Props {
@@ -67,7 +67,6 @@ export default function ProductGrid({ products, onSelectionChange, selectedIds }
     <div>
       <div className="row" style={{ marginBottom: 8 }}>
         <button data-demo="ai-schema" onClick={showAiSchema}>Show AI Toolkit schema</button>
-        <span className="muted">AG Grid AI Toolkit (installed module), not AG Studio.</span>
       </div>
       {aiSchema && <pre style={{ maxHeight: 220, overflow: 'auto', background: '#f8fafc', padding: 8, fontSize: 12 }}>{aiSchema}</pre>}
     <div className="grid-wrap">
@@ -81,7 +80,8 @@ export default function ProductGrid({ products, onSelectionChange, selectedIds }
         rowGroupPanelShow="always"
         initialState={{ rowGroup: { groupColIds: ['retailer'] } }}
         groupDefaultExpanded={1}
-        rowSelection={{ mode: 'multiRow', checkboxes: true, headerCheckbox: true, enableClickSelection: false }}
+        // Only product rows are selectable. Retailer group rows get no checkbox, so a tick always means one product.
+        rowSelection={{ mode: 'multiRow', checkboxes: true, headerCheckbox: true, enableClickSelection: false, isRowSelectable: (node) => !node.group, hideDisabledCheckboxes: true }}
         getRowId={(p) => p.data.id}
         onGridReady={(e: GridReadyEvent<Product>) => {
           gridApi.current = e.api;

@@ -71,7 +71,7 @@ export default function LedgerGrid({ entries, chain, onVerify }: Props) {
 
   return (
     <div>
-      <div className="row" style={{ marginBottom: 12 }}>
+      <div className="row row-top-left" style={{ marginBottom: 12 }}>
         <button onClick={onVerifyClick} disabled={verifying}>Verify chain</button>
         {verifying && <span className="spinner" aria-label="verifying" />}
         {!verifying && verified && <span className="check-in">✓</span>}

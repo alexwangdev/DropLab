@@ -106,11 +106,13 @@ test('G-2 (payout pie) is fresh-run only, and the captured-run payout step is st
   assert.equal(payoutSteps(stepsFor(false)).length, 1, 'fresh run shows the payout card once');
 });
 
-test('every step caps at its narration length, within 2 s of words at 2.5 per second plus 1 s', () => {
+test('every step caps at its narration length: measured audio plus a margin of 0.3 to 2 s (no generous caps hiding short speech)', () => {
+  // Measured from the MP3s (durations.json). This replaced the words-per-second estimate when the narration moved to
+  // pre-generated audio: a neural voice does not run at the same pace as the speech estimate.
+  const durations = JSON.parse(readFileSync(path.resolve(here, '../../client/public/demo-audio/durations.json'), 'utf8')) as Record<string, number>;
   for (const s of DEMO_STEPS) {
-    const words = s.narration.trim().split(/\s+/).length;
-    const estimate = words / 2.5 + 1;
-    assert.ok(Math.abs(s.seconds - estimate) <= 2, `${s.id}: cap ${s.seconds}s vs narration estimate ${estimate.toFixed(1)}s`);
+    const extra = s.seconds - durations[s.id];
+    assert.ok(extra >= 0.3 - 1e-9 && extra <= 2 + 1e-9, `${s.id}: cap ${s.seconds}s is ${extra.toFixed(2)}s above audio ${durations[s.id]}s (want 0.3 to 2)`);
   }
 });
 
@@ -138,4 +140,63 @@ test('F-5 (negotiation) says "simulated" in the narration and the caption', () =
   assert.ok(step, 'f5-negotiate step missing');
   assert.match(step.narration, /simulated/i);
   assert.match(step.caption, /simulated/i);
+});
+
+// ---- staged payouts: the demo must not claim the supplier is paid in the at-capture batch ----
+
+test('no demo line claims a 70/20/10 batch that pays the supplier now (stale at-capture framing)', () => {
+  for (const s of DEMO_STEPS) {
+    const text = `${s.narration} ${s.caption}`;
+    assert.doesNotMatch(text, /seventy, twenty and ten|70\/20\/10|70 \/ 20 \/ 10/, `${s.id} still describes the old split`);
+  }
+  assert.doesNotMatch(client('pages/CheckoutPage.tsx'), /Split payout \(70\/20\/10\)/, 'checkout button still claims 70/20/10');
+});
+
+test('the waterfall marks a staged supplier share as STAGED, never as paid', () => {
+  const wf = client('components/MoneyWaterfall.tsx');
+  assert.match(wf, /item\?\.status === 'STAGED'/, 'the waterfall must read the STAGED status');
+  assert.match(wf, /STAGED ·/, 'the staged bucket must show a visible STAGED label');
+  // The sum check still counts the staged entry toward the total.
+  assert.match(wf, /const sumOk = !paid \|\| sum === totalCents;/);
+});
+
+test('the payout pie labels a staged supplier slice (no staged slice is drawn as paid)', () => {
+  const pie = client('components/PayoutChart.tsx');
+  assert.match(pie, /r\.staged \? \{ \.\.\.r, role: `\$\{r\.role\} \(staged\)` \}/);
+});
+
+test('the staged-share narration names the milestones, and b6 does not claim the supplier was staged on an already-paid drop', () => {
+  const b4 = DEMO_STEPS.find((s) => s.id === 'b4-split-payout');
+  const b6 = DEMO_STEPS.find((s) => s.id === 'b6-payout-existing');
+  assert.ok(b4 && b6);
+  assert.match(b4.narration, /milestones/);
+  assert.doesNotMatch(b6.narration, /staged/i, 'the captured demo drop was paid before the staged rule');
+});
+
+// ---- narration audio: pre-generated MP3s, one per step, with the speech fallback kept ----
+
+const DEMO_AUDIO_DIR = path.resolve(here, '../../client/public/demo-audio');
+
+test('every step has an audio URL and its MP3 exists on disk and is non-empty', () => {
+  for (const s of DEMO_STEPS) {
+    assert.equal(s.audio, `/demo-audio/${s.id}.mp3`, `${s.id}: audio URL`);
+    const file = path.join(DEMO_AUDIO_DIR, `${s.id}.mp3`);
+    assert.ok(fs.existsSync(file), `${s.id}: ${file} is missing (run scripts/generate-demo-audio.py)`);
+    assert.ok(fs.statSync(file).size > 0, `${s.id}: MP3 is empty`);
+  }
+});
+
+test('durations.json covers every step, and every cap is at least the MP3 duration plus 0.3 s', () => {
+  const durations = JSON.parse(fs.readFileSync(path.join(DEMO_AUDIO_DIR, 'durations.json'), 'utf8')) as Record<string, number>;
+  for (const s of DEMO_STEPS) {
+    assert.ok(typeof durations[s.id] === 'number' && durations[s.id] > 0, `${s.id}: no measured duration`);
+    assert.ok(s.seconds >= durations[s.id] + 0.3 - 1e-9, `${s.id}: cap ${s.seconds}s is below audio ${durations[s.id]}s + 0.3s`);
+  }
+});
+
+test('the player keeps the speech synthesis fallback (it must not be deleted)', () => {
+  const player = client('components/DemoPlayer.tsx');
+  assert.match(player, /speechSynthesis/);
+  assert.match(player, /function playNarration/);
+  assert.match(player, /speak\(step\.narration, onEnd\)/);
 });

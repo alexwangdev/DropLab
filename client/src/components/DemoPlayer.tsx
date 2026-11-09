@@ -85,11 +85,69 @@ function speak(text: string, onEnd: () => void): boolean {
 }
 
 function stopSpeech() {
+  stopAudio();
   try {
     window.speechSynthesis?.cancel();
   } catch {
     /* no speech support: nothing to stop */
   }
+}
+
+// Narration audio: one element for the whole demo, playing the pre-generated MP3 of each step
+// (client/public/demo-audio, written by scripts/generate-demo-audio.py). Speech synthesis is the fallback.
+let narrator: HTMLAudioElement | null = null;
+const preloaded = new Map<string, HTMLAudioElement>();
+
+function getNarrator(): HTMLAudioElement | null {
+  if (typeof Audio === 'undefined') return null;
+  if (!narrator) narrator = new Audio();
+  return narrator;
+}
+
+function stopAudio() {
+  if (!narrator) return;
+  narrator.onended = null;
+  narrator.onerror = null;
+  try {
+    narrator.pause();
+    narrator.removeAttribute('src');
+    narrator.load();
+  } catch {
+    /* no audio support: nothing to stop */
+  }
+}
+
+/** Starts loading a later step's MP3 so there is no gap between steps. */
+function preloadAudio(src: string) {
+  if (typeof Audio === 'undefined' || preloaded.has(src)) return;
+  const a = new Audio();
+  a.preload = 'auto';
+  a.src = src;
+  preloaded.set(src, a);
+}
+
+/**
+ * Plays the step's MP3. A missing, undecodable or blocked file falls back to speech synthesis for this step;
+ * if speech is unavailable too, the step timer moves the demo on. A failed file never freezes the demo.
+ */
+function playNarration(step: DemoStep, onEnd: () => void) {
+  const a = getNarrator();
+  let fellBack = false;
+  const fallback = () => {
+    if (fellBack) return;
+    fellBack = true;
+    if (a) {
+      a.onended = null;
+      a.onerror = null;
+      a.pause();
+    }
+    speak(step.narration, onEnd); // returns false when speech is unavailable: the timer takes over
+  };
+  if (!a) return fallback();
+  a.onended = () => onEnd();
+  a.onerror = () => fallback();
+  a.src = step.audio;
+  a.play().catch(() => fallback());
 }
 
 // A human click: pointer and mouse events in order. Some widgets (AG Grid checkboxes, Bryntum) ignore a bare click().
@@ -185,6 +243,8 @@ export default function DemoPlayer() {
     ended.current = false;
     setNote(null);
     setCaption(step.caption);
+    const next = steps[run.index + 1];
+    if (next) preloadAudio(next.audio);
 
     (async () => {
       const el = await waitForSelector(step.selector, 8000, step.nth ?? 1);
@@ -236,9 +296,7 @@ export default function DemoPlayer() {
       if (step.waitFor) await waitForSelector(step.waitFor, 40000);
       // A late end event from a cancelled utterance belongs to an older step: ignore it.
       const myKey = key;
-      if (!speak(step.narration, () => { if (stepKey.current === myKey) ended.current = true; })) {
-        // No speech: the timer below moves the step on.
-      }
+      playNarration(step, () => { if (stepKey.current === myKey) ended.current = true; });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.status, run?.index, run?.captured, location.pathname]);
@@ -265,14 +323,20 @@ export default function DemoPlayer() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [run?.status, run?.index, run?.captured]);
 
-  // Pause and resume the speech together with the timer.
+  // Pause and resume the narration together with the timer. Resume never restarts a clip that already ended.
   useEffect(() => {
     if (!run) return;
     try {
-      if (run.status === 'paused') window.speechSynthesis?.pause();
-      if (run.status === 'running') window.speechSynthesis?.resume();
+      if (run.status === 'paused') {
+        narrator?.pause();
+        window.speechSynthesis?.pause();
+      }
+      if (run.status === 'running') {
+        if (narrator && narrator.src && !narrator.ended) narrator.play().catch(() => undefined);
+        window.speechSynthesis?.resume();
+      }
     } catch {
-      /* no speech support */
+      /* no audio or speech support */
     }
   }, [run?.status]);
 
@@ -302,6 +366,13 @@ export default function DemoPlayer() {
           <p className="demo-muted">Speech needs this click to start. Without a voice, captions still run.</p>
           <button
             onClick={async () => {
+              // Audio playback needs this click too: unlock the narration element with the first clip (paused at once).
+              const unlock = getNarrator();
+              const firstClip = stepsFor(false)[0];
+              if (unlock && firstClip) {
+                unlock.src = firstClip.audio;
+                unlock.play().then(() => unlock.pause()).catch(() => undefined);
+              }
               try {
                 window.speechSynthesis?.speak(new SpeechSynthesisUtterance(''));
               } catch {
