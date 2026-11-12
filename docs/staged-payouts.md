@@ -45,11 +45,20 @@ Checks run in this order. The first failure refuses with a named reason and writ
 | 2 | Milestone is Ship, Sell or Payout | 409 `NO_TRANCHE` (Order, Setup and others) |
 | 3 | Earlier step done: Ship needs Order paid; Sell needs Ship released; Payout needs Sell released | 409 `OUT_OF_ORDER` |
 | 4 | Not already released | 200, existing batch, no new call, no new ledger entry |
-| 5 | Mandate approved and Cleared for the approved plan | 409 `MANDATE_NOT_CLEARED` |
-| 6 | Approval not invalidated and the approved plan hash matches | 409 `PLAN_HASH_MISMATCH` |
+| 5 | The current mandate still clears the plan: Cleared (or a Hold the organizer approved). Refused never passes. | 409 `MANDATE_NOT_CLEARED` |
+| 6 | No invalidated approval, and each plan's recorded hash matches its lines | 409 `PLAN_HASH_MISMATCH` |
 | 7 | Pool has money to release | 409 `NOTHING_TO_RELEASE` |
 
-Checks 5 and 6 re-evaluate the approved plan (its lines from the approval ledger entry) against the current mandate.
+Checks 5 and 6 decide which plan to re-evaluate against the current mandate:
+
+- **With an approval:** the approved plan (its lines from the `approval` ledger entry).
+- **Without one:** every staged order exactly as it was paid (its lines and plan hash from the `order_created` ledger entry).
+  A selection the mandate rates **Cleared** is paid without an approval step, so the paid plans are the plan. (Before
+  2026-11-09 the release required an approval, so a normal Cleared drop could never release the supplier. Found on the
+  gated demo run; fixed.)
+
+Each plan is evaluated at the time it was approved or paid. The closing date governs buying, not releasing, so a
+Payout tranche can still be released after the drop has closed.
 
 On success, one database transaction (the drop row is locked first, so two releases on one drop run one at a time):
 1. PayPal Payouts batch, one supplier item, `sender_batch_id = droplab-<drop>-<milestone>-v1`.
@@ -120,8 +129,8 @@ These IDs are also in `bench/results.json` under `staged_payouts`. The original 
 
 PayPal accepted the 55-character sender batch ID `droplab-<drop uuid>-<milestone>-v1` on all three releases.
 
-Not checked in this run: the PayPal payout status of each batch (`GET /api/paypal/payouts/:batch_id`), and the Gantt
-bar colour on payment.
+Checked on 2026-11-09: `GET /api/paypal/payouts/:batch_id` reports `SUCCESS` for all three tranche batches, and the
+Gantt shows the paid milestones (Order, Ship, Sell, Payout) in green, with Setup (no tranche) still planned.
 
 ## Manual demo steps (not in the video yet)
 

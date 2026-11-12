@@ -34,7 +34,7 @@ export default function ProductGrid({ products, onSelectionChange, selectedIds }
   const columnDefs = useMemo<ColDef<Product>[]>(
     () => [
       // U-3: explicit widths and minimums so every header shows in full on a 1200px page.
-      { field: 'image_url', headerName: 'Image', width: 96, minWidth: 96, filter: false, sortable: false, cellRenderer: ThumbCell },
+      { field: 'image_url', headerName: 'Image', width: 112, minWidth: 112, filter: false, sortable: false, cellRenderer: ThumbCell },
       { field: 'title', headerName: 'Product', flex: 2, minWidth: 220 },
       { field: 'retailer', headerName: 'Retailer', flex: 1, minWidth: 130, enableRowGroup: true, enablePivot: true, filter: 'agSetColumnFilter' },
       {
@@ -78,6 +78,8 @@ export default function ProductGrid({ products, onSelectionChange, selectedIds }
         autoGroupColumnDef={{ headerName: 'Retailer group', minWidth: 200 }}
         sideBar={{ toolPanels: ['columns', 'filters'] }}
         rowGroupPanelShow="always"
+        // The Price header reads 'Price', not 'sum(Price)', so it fits its column.
+        suppressAggFuncInHeader
         initialState={{ rowGroup: { groupColIds: ['retailer'] } }}
         groupDefaultExpanded={1}
         // Only product rows are selectable. Retailer group rows get no checkbox, so a tick always means one product.

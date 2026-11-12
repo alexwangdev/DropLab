@@ -41,7 +41,7 @@
   --section-gap: 20px;
 
   /* type */
-  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Inter Variable", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; /* Inter is bundled (@fontsource), never fetched from a CDN */
   --font-mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
   --text-xs: 12px;
   --text-sm: 14px;
@@ -189,3 +189,15 @@ input[type="checkbox"] { display: inline-block; width: auto; margin: 0; padding:
 /* Left-aligned, top-aligned button row (the Block row in the injection panel). */
 .row.row-top-left { justify-content: flex-start; align-items: center; flex-wrap: nowrap; }
 .row.row-top-left > * { flex: 0 1 auto; }
+
+/* Gantt milestones: Bryntum draws the label inside the marker's 15 px box, so the marker covered the first letters.
+   Our task renderer's label is shifted right past the marker. Only milestone labels are affected. */
+.gantt-wrap .b-milestone .b-gantt-task-content > span { margin-left: 18px; white-space: nowrap; }
+
+/* Icons inside buttons (lucide-react): sit on the text baseline with a small gap, no layout change. */
+button svg { vertical-align: -3px; margin-right: 6px; flex-shrink: 0; }
+/* NumberFlow digits keep tabular widths so amounts do not jitter while they roll. */
+number-flow-react { font-variant-numeric: tabular-nums; }
+/* Visually hidden, still read by screen readers and included in copied text. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.money-flow { position: relative; display: inline-block; }

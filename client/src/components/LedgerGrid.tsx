@@ -6,6 +6,7 @@ import type { LedgerEntry } from '../api';
 import { money } from '../api';
 import { droplabTheme } from '../theme';
 import { VerdictPill } from './VerdictPill';
+import { ShieldCheck } from 'lucide-react';
 
 ModuleRegistry.registerModules([AllCommunityModule, AllEnterpriseModule]);
 
@@ -72,7 +73,7 @@ export default function LedgerGrid({ entries, chain, onVerify }: Props) {
   return (
     <div>
       <div className="row row-top-left" style={{ marginBottom: 12 }}>
-        <button onClick={onVerifyClick} disabled={verifying}>Verify chain</button>
+        <button onClick={onVerifyClick} disabled={verifying}><ShieldCheck size={16} aria-hidden />Verify chain</button>
         {verifying && <span className="spinner" aria-label="verifying" />}
         {!verifying && verified && <span className="check-in">✓</span>}
         {chain && chain.ok && <span className="badge badge-live">Chain verified: {chain.entries} entries</span>}

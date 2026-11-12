@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api_, money, type Drop, type MandateRow, type Product, type SellThrough } from '../api';
 import { closeInstant, formatCountdown } from '../lib/countdown';
+import { ShoppingBag } from 'lucide-react';
 
 /**
  * Buyer-facing storefront (phone width). Everything on screen comes from the server:
@@ -129,7 +130,7 @@ export default function StorePage() {
               disabled={soldOut || closed || p.availability !== 'InStock'}
               onClick={() => reserve(p)}
             >
-              {soldOut ? 'Sold out' : closed ? 'Closed' : 'Reserve with PayPal'}
+              {!soldOut && !closed && <ShoppingBag size={16} aria-hidden />}{soldOut ? 'Sold out' : closed ? 'Closed' : 'Reserve with PayPal'}
             </button>
           </li>
         ))}
@@ -141,7 +142,7 @@ export default function StorePage() {
             <b>{pickedProducts.length} selected</b> · {money(pickedTotal)}
           </div>
           <button className="store-reserve" disabled={cartBlocked || pickedProducts.every((p) => p.availability !== 'InStock')} onClick={reserveAll}>
-            Reserve {pickedProducts.length} with PayPal
+            <ShoppingBag size={16} aria-hidden />Reserve {pickedProducts.length} with PayPal
           </button>
         </div>
       )}

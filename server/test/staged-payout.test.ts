@@ -81,6 +81,8 @@ const TEST_DB = process.env.DATABASE_URL_TEST ?? '';
 if (!TEST_DB) throw new Error('Set DATABASE_URL_TEST to a separate test database (never the dev database).');
 process.env.DATABASE_URL = TEST_DB;
 process.env.DROPLAB_TEST = '1';
+// No supplier e-mail: a release that passes every check stops with 500 CONFIG before any PayPal call. No test pays anyone.
+process.env.PAYOUT_SUPPLIER_EMAIL = '';
 
 let server: Server;
 let base = '';
@@ -173,4 +175,73 @@ test('cancel with zero captures is a no-op success, and a second cancel is refus
   const second = await call('POST', `/drops/${id}/cancel`);
   assert.equal(second.status, 409);
   assert.equal(second.body.reason, 'ALREADY_CANCELLED');
+});
+
+// ---- the release's mandate check without an approval step (a Cleared selection is paid without approving) ----
+
+/** A drop with one captured, staged order whose plan is recorded the way checkout records it. No PayPal involved. */
+async function paidDrop(opts: { totalCents: number; budgetCents?: number; closesAt?: string | null; tamper?: boolean; paidDaysAgo?: number }) {
+  const { planHash } = await import('../src/mandate.js');
+  const gov = await import('../src/governance.js');
+  const id = await newDrop();
+  const m = await call('POST', `/drops/${id}/mandate`, {
+    budget_cents: opts.budgetCents ?? 50000, per_item_cap_cents: 50000, ask_above_cents: 50000, closes_at: opts.closesAt ?? null,
+  });
+  assert.equal(m.status < 300, true, JSON.stringify(m.body));
+  await pool.query("UPDATE milestones SET paypal_status = 'paid' WHERE drop_id = $1 AND title = 'Order'", [id]);
+  const orderId = `TEST${Math.random().toString(36).slice(2, 12).toUpperCase()}`;
+  await pool.query(
+    "INSERT INTO orders (paypal_order_id, drop_id, items, total_cents, status, paypal_capture_id) VALUES ($1, $2, $3, $4, 'COMPLETED', $5)",
+    [orderId, id, JSON.stringify([{ product_id: 'p1', qty: 1 }]), opts.totalCents, `CAP${orderId}`],
+  );
+  const lines = [{ product_id: 'p1', qty: 1, price_cents: opts.totalCents }];
+  const entry = await gov.tx((c: any) => gov.appendLedger(c, id, {
+    kind: 'order_created', actor: 'paypal', amount_cents: opts.totalCents, paypal_ref: orderId, verdict: 'Cleared',
+    detail: { lines, plan_hash: opts.tamper ? 'f'.repeat(64) : planHash(lines) },
+  }));
+  if (opts.paidDaysAgo) {
+    // Test fixture only: the order was paid days ago. created_at is not part of the entry hash, so the chain stays valid.
+    await pool.query("UPDATE ledger_entries SET created_at = now() - make_interval(days => $2) WHERE id = $1", [entry.id, opts.paidDaysAgo]);
+  }
+  return id;
+}
+
+const isoDay = (offsetDays: number) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+test('a paid Cleared plan clears the release without an approval step (stops only at the missing supplier e-mail)', async () => {
+  const id = await paidDrop({ totalCents: 700 });
+  const r = await call('POST', `/drops/${id}/milestones/Ship/release`);
+  assert.equal(r.status, 500, JSON.stringify(r.body));
+  assert.equal(r.body.reason, 'CONFIG', 'mandate and pool checks passed; no PayPal call was made');
+  const { rows } = await pool.query("SELECT COUNT(*)::int AS n FROM ledger_entries WHERE drop_id = $1 AND kind IN ('milestone_completed','payout_tranche')", [id]);
+  assert.equal(rows[0].n, 0, 'nothing is written when the release stops');
+});
+
+test('a paid plan whose recorded hash does not match its lines is refused with PLAN_HASH_MISMATCH', async () => {
+  const id = await paidDrop({ totalCents: 700, tamper: true });
+  const r = await call('POST', `/drops/${id}/milestones/Ship/release`);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.reason, 'PLAN_HASH_MISMATCH');
+});
+
+test('a paid plan the current mandate no longer clears (budget lowered below it) is refused with MANDATE_NOT_CLEARED', async () => {
+  const id = await paidDrop({ totalCents: 700, budgetCents: 500 });
+  const r = await call('POST', `/drops/${id}/milestones/Ship/release`);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.reason, 'MANDATE_NOT_CLEARED');
+});
+
+test('the closing date governs buying, not releasing: a plan paid before the close still clears after it', async () => {
+  const id = await paidDrop({ totalCents: 700, closesAt: isoDay(-2), paidDaysAgo: 4 });
+  const r = await call('POST', `/drops/${id}/milestones/Ship/release`);
+  assert.equal(r.status, 500, JSON.stringify(r.body));
+  assert.equal(r.body.reason, 'CONFIG');
+});
+
+test('an invalidated approval is refused with PLAN_HASH_MISMATCH even when paid plans exist', async () => {
+  const id = await paidDrop({ totalCents: 700 });
+  await pool.query("UPDATE mandates SET status = 'invalidated' WHERE drop_id = $1", [id]);
+  const r = await call('POST', `/drops/${id}/milestones/Ship/release`);
+  assert.equal(r.status, 409);
+  assert.equal(r.body.reason, 'PLAN_HASH_MISMATCH');
 });

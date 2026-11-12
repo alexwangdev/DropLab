@@ -6,6 +6,7 @@ import StudioPage from './pages/StudioPage';
 import StorePage from './pages/StorePage';
 import EvidencePage from './pages/EvidencePage';
 import DemoPlayer from './components/DemoPlayer';
+import { Toaster } from 'sonner';
 
 export default function App() {
   const location = useLocation();
@@ -28,6 +29,8 @@ export default function App() {
         </div>
       </main>
       <DemoPlayer />
+      {/* Top-right, clear of the demo's caption and control bar at the bottom. */}
+      <Toaster position="top-right" richColors closeButton />
     </div>
   );
 }

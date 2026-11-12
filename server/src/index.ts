@@ -20,7 +20,9 @@ import { verifyChain } from './ledger.js';
 import { negotiate } from './negotiate.js';
 import { chooseSubstitutes } from './substitute.js';
 import { summarizeEvidence } from './evidence.js';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 export const app = express();
 app.use(cors({ origin: CLIENT_ORIGIN }));
@@ -752,14 +754,37 @@ app.post('/api/drops/:id/milestones/:title/release', route(async (req, res) => {
       const again = (await gov.listTranches(drop.id, c as any)).find((t) => t.milestone === title);
       if (again) return { kind: 'replay' as const, row: again };
 
+      // The plan the mandate must still clear. With an approval: the approved plan. Without one: every staged order
+      // exactly as it was paid (a Cleared selection is paid without an approval step, so the paid plans are the plan).
+      // Each plan is evaluated at the time it was approved or paid: the closing date governs buying, not releasing.
       const mandate = await gov.getMandate(drop.id, c as any);
-      if (!mandate || mandate.status === 'draft') throw new ReleaseRefusal(409, 'MANDATE_NOT_CLEARED', 'the mandate has not been approved for this plan');
-      if (mandate.status === 'invalidated') throw new ReleaseRefusal(409, 'PLAN_HASH_MISMATCH', 'the approved plan changed; re-approve it before releasing money');
-      const approval = (await c.query("SELECT detail FROM ledger_entries WHERE drop_id = $1 AND kind = 'approval' ORDER BY seq DESC LIMIT 1", [drop.id])).rows[0];
-      const lines: Line[] = (approval?.detail?.lines as Line[]) ?? [];
-      const ev = evaluateMandate(rulesFrom(drop, mandate), lines, new Date());
-      if (ev.verdict !== 'Cleared') throw new ReleaseRefusal(409, 'MANDATE_NOT_CLEARED', `the mandate verdict is ${ev.verdict}, not Cleared`);
-      if (!mandate.plan_hash || planHash(lines) !== mandate.plan_hash) throw new ReleaseRefusal(409, 'PLAN_HASH_MISMATCH', 'the approved plan hash does not match the plan');
+      if (mandate?.status === 'invalidated') throw new ReleaseRefusal(409, 'PLAN_HASH_MISMATCH', 'the approved plan changed; re-approve it before releasing money');
+      const rules = rulesFrom(drop, mandate);
+      const approved = mandate?.status === 'approved';
+      let plans: { lines: Line[]; hash: string | null; at: Date }[] = [];
+      if (approved) {
+        const approval = (await c.query("SELECT detail, created_at FROM ledger_entries WHERE drop_id = $1 AND kind = 'approval' ORDER BY seq DESC LIMIT 1", [drop.id])).rows[0];
+        plans = [{ lines: (approval?.detail?.lines as Line[]) ?? [], hash: mandate?.plan_hash ?? null, at: approval ? new Date(approval.created_at) : new Date() }];
+      } else {
+        const staged = await gov.stagedOrders(drop.id, c as any);
+        if (staged.length > 0) {
+          const rows = (await c.query(
+            "SELECT paypal_ref, detail, created_at FROM ledger_entries WHERE drop_id = $1 AND kind = 'order_created' AND paypal_ref = ANY($2::text[])",
+            [drop.id, staged.map((o) => o.paypal_order_id)],
+          )).rows;
+          const paidIds = new Set(rows.map((r: any) => r.paypal_ref));
+          if (staged.some((o) => !paidIds.has(o.paypal_order_id))) throw new ReleaseRefusal(409, 'PLAN_HASH_MISMATCH', 'a paid order has no recorded plan to check');
+          plans = rows.map((r: any) => ({ lines: (r.detail?.lines as Line[]) ?? [], hash: (r.detail?.plan_hash as string) ?? null, at: new Date(r.created_at) }));
+        }
+      }
+      if (plans.length === 0) throw new ReleaseRefusal(409, 'MANDATE_NOT_CLEARED', 'there is no approved or paid plan for the mandate to check');
+      for (const plan of plans) {
+        const ev = evaluateMandate(rules, plan.lines, plan.at);
+        // An approved plan may be a Hold the organizer approved; a paid plan without approval must be Cleared. Refused never passes.
+        const ok = ev.verdict === 'Cleared' || (approved && ev.verdict === 'Hold');
+        if (!ok) throw new ReleaseRefusal(409, 'MANDATE_NOT_CLEARED', `the mandate verdict for the paid plan is ${ev.verdict}`);
+        if (!plan.hash || planHash(plan.lines) !== plan.hash) throw new ReleaseRefusal(409, 'PLAN_HASH_MISMATCH', 'the recorded plan hash does not match the plan');
+      }
 
       const pool = await supplierPool(drop.id);
       const amount = trancheAmountCents(pool.accrued, pool.released, title);
@@ -1204,6 +1229,16 @@ function errorBody(e: unknown, action: string): { status: number; body: Record<s
 function handleError(res: express.Response, e: unknown, action: string) {
   const out = errorBody(e, action);
   return res.status(out.status).json(out.body);
+}
+
+// Production (Render): this one service serves both the API and the built client (client/dist), so the browser's
+// relative /api calls reach this server on the same origin, with no proxy and no CORS. In development Vite serves the
+// client on :5173; this block only runs when a client build exists.
+const CLIENT_DIST = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../client/dist');
+if (existsSync(path.join(CLIENT_DIST, 'index.html'))) {
+  app.use(express.static(CLIENT_DIST, { index: false, maxAge: '1h' }));
+  // Client-side routes (/create, /drop/:id, ...) get index.html. Paths under /api never do.
+  app.get(/^\/(?!api(\/|$)).*/, (_req, res) => res.sendFile(path.join(CLIENT_DIST, 'index.html')));
 }
 
 // Express 4 does not catch async errors by itself; this turns them into a JSON 500.

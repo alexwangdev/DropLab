@@ -1,5 +1,5 @@
 import { money, type PayoutItem } from '../api';
-import { useCountUp } from '../hooks/useCountUp';
+import MoneyFlow from './MoneyFlow';
 
 // Role labels for the people in the split. The full recipient addresses stay in the ledger and the evidence.
 export const ROLE_LABEL: Record<string, string> = { creator: 'Organizer', supplier: 'Supplier', platform: 'DropLab' };
@@ -24,14 +24,12 @@ export default function MoneyWaterfall({ totalCents, items }: { totalCents: numb
   const byRole = new Map((items ?? []).map((i) => [i.role, i]));
   const sum = paid ? (items ?? []).reduce((s, i) => s + i.amount_cents, 0) : 0;
   const sumOk = !paid || sum === totalCents;
-  // Counts up from zero when the captured total arrives (no-op under reduced motion).
-  const shown = useCountUp(totalCents, 500);
 
   return (
     <div className={`waterfall ${paid ? 'waterfall-paid' : 'waterfall-pending'}`}>
       <div className="waterfall-total">
         <span className="eyebrow">Captured</span>
-        <span className="waterfall-total-amount">{money(shown)}</span>
+        <span className="waterfall-total-amount"><MoneyFlow cents={totalCents} fromZero /></span>
       </div>
       <div className="waterfall-streams" aria-hidden="true">
         {ORDER.map((role) => (
@@ -53,7 +51,7 @@ export default function MoneyWaterfall({ totalCents, items }: { totalCents: numb
               {staged ? (
                 <div className="waterfall-amount waterfall-staged">STAGED · {money(item!.amount_cents)} · released by milestone</div>
               ) : (
-                <div className="waterfall-amount">{paid && item ? money(item.amount_cents) : 'Payout pending'}</div>
+                <div className="waterfall-amount">{paid && item ? <MoneyFlow cents={item.amount_cents} fromZero /> : 'Payout pending'}</div>
               )}
             </div>
           );

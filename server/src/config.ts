@@ -8,7 +8,9 @@ dotenv.config({ path: path.resolve(here, '../.env') });
 dotenv.config({ path: path.resolve(here, '../../.env') });
 
 export const PORT = Number(process.env.PORT ?? 3001);
-export const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? 'http://localhost:5173';
+// The browser-facing origin (CORS and PayPal return URLs). On Render the one web service serves the client too, so
+// Render's own RENDER_EXTERNAL_URL (the full https://….onrender.com URL) is the origin unless CLIENT_ORIGIN is set.
+export const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN || process.env.RENDER_EXTERNAL_URL || 'http://localhost:5173';
 export const CHANNEL3_API_KEY = process.env.CHANNEL3_API_KEY ?? '';
 export const DATABASE_URL = process.env.DATABASE_URL ?? '';
 

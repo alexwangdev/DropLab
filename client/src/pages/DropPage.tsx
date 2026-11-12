@@ -10,6 +10,9 @@ import SearchSets from '../components/SearchSets';
 import PriceChart from '../components/PriceChart';
 import Negotiation from '../components/Negotiation';
 import PayoutChart, { type SplitRow } from '../components/PayoutChart';
+import MoneyFlow from '../components/MoneyFlow';
+import { toast } from 'sonner';
+import { CircleDollarSign, ShieldBan } from 'lucide-react';
 
 const badge = (v: string) =>
   v === 'Cleared' ? 'badge badge-cleared' : v === 'Hold' ? 'badge badge-hold' : 'badge badge-refused';
@@ -72,11 +75,14 @@ export default function DropPage() {
           ? `${milestone} was already released: batch ${r.paypal_batch_id}.`
           : `${milestone} released ${money(r.amount_cents)} to the supplier: batch ${r.paypal_batch_id}, ledger #${r.ledger_seq ?? '—'}.`,
       );
+      if (r.already_released) toast.info(`${milestone} was already released`, { description: `Batch ${r.paypal_batch_id}. No new PayPal call.` });
+      else toast.success(`${milestone} released ${money(r.amount_cents)} to the supplier`, { description: `PayPal Payouts batch ${r.paypal_batch_id} · ledger #${r.ledger_seq ?? '—'}` });
       await refreshAll();
       await refreshLedger();
       loadTranches();
     } catch (e) {
       setError((e as Error).message);
+      toast.error(`${milestone} not released`, { description: (e as Error).message });
     } finally {
       setReleaseBusy(null);
     }
@@ -205,7 +211,10 @@ export default function DropPage() {
     setInjectBusy(true);
     setError(null);
     try {
-      setInjection(await apiF.injection(id, target.id, injectText));
+      const result = await apiF.injection(id, target.id, injectText);
+      setInjection(result);
+      if (result.blocked) toast.error('Blocked · HTTP 409', { description: `PayPal calls: ${result.paypal_calls}` });
+      else toast.warning(`Not blocked · ${result.verdict}`);
       await refreshLedger();
     } catch (e) {
       setError((e as Error).message);
@@ -307,7 +316,10 @@ export default function DropPage() {
   }, [id]);
 
   async function onVerify() {
-    setChain(await apiF.verifyLedger(id));
+    const r = await apiF.verifyLedger(id);
+    setChain(r);
+    if (r.ok) toast.success('Ledger chain verified', { description: `${r.entries} entries, recomputed on the server.` });
+    else toast.error(`Ledger chain broken at #${r.broken_at_seq}`);
   }
 
   if (error && !drop) return <div className="error">{error}</div>;
@@ -406,7 +418,7 @@ export default function DropPage() {
         />
         <div className="row row-top-left" style={{ marginTop: 8 }}>
           <button data-demo="inject-block" onClick={onInject} disabled={injectBusy || products.length === 0}>
-            {injectBusy ? 'Checking…' : 'Block'}
+            <ShieldBan size={16} aria-hidden />{injectBusy ? 'Checking…' : 'Block'}
           </button>
           <span className="muted">Product: {(selected[0] ?? products[0])?.title ?? '—'}</span>
         </div>
@@ -473,7 +485,7 @@ export default function DropPage() {
           {tranches ? (
             <>
               <p className="muted">
-                Supplier pool {money(tranches.pool_accrued_cents)} · released {money(tranches.released_cents)} · still to release {money(tranches.unreleased_cents)}
+                Supplier pool <MoneyFlow cents={tranches.pool_accrued_cents} /> · released <MoneyFlow cents={tranches.released_cents} /> · still to release <MoneyFlow cents={tranches.unreleased_cents} />
                 {' '}({tranches.staged_orders} captured order{tranches.staged_orders === 1 ? '' : 's'} staged)
               </p>
               <ul>
@@ -490,7 +502,7 @@ export default function DropPage() {
                       </span>
                       {!t.released && (
                         <button className="tranche-button" onClick={() => onRelease(t.milestone)} disabled={releaseBusy !== null || (t.next_amount_cents ?? 0) <= 0} title={paid ? undefined : 'Releases the tranche and completes the milestone'}>
-                          {releaseBusy === t.milestone ? 'Releasing…' : 'Mark complete & release'}
+                          <CircleDollarSign size={16} aria-hidden />{releaseBusy === t.milestone ? 'Releasing…' : 'Mark complete & release'}
                         </button>
                       )}
                     </li>
