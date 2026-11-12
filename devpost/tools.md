@@ -10,4 +10,4 @@
 | **Bryntum Gantt Community 8.0.0** | Client | Timeline with dependencies, lags, hold labels. |
 | **Channel3** | Server | Product search over MCP (`search_products`, verified tool list), with REST as the fallback. Live price and stock re-check (REST) before any order. See `docs/channel3-mcp.md`. |
 | **PayPal sandbox** | Server | Orders v2 and Payouts v1. Sandbox only. |
-| **Render** | Planned | `render.yaml` only. Not deployed. |
+| **Render** | Deployed | https://droplab-5d3k.onrender.com: one web service (API and client on one origin) and Postgres, from `render.yaml`. |

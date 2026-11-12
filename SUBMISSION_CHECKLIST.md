@@ -2,9 +2,9 @@
 
 Claude has prepared everything in the repo. These are the only steps left, in order. Each one is yours.
 
-1. **Deploy to Render.** Follow `devpost/deploy-checklist.md`. Copy the live URL.
+1. ~~**Deploy to Render.**~~ Done: https://droplab-5d3k.onrender.com
 2. **Record the video** (under 3 minutes) using `devpost/video-script.md`. Use the live URL. Upload it to YouTube as **public**.
-3. **Put the live URL and video link in the README** (replace the "Not deployed" wording) and push.
+3. **Put the video link in the README** (the live URL is already there) and push.
 4. **Submit on Devpost.** Paste `devpost/description.md` as the text description, `devpost/tools.md` as Tools, the repo link `https://github.com/alexwangdev/DropLab`, and the video link.
 
 Before submitting, check:

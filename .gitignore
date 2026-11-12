@@ -8,3 +8,6 @@ server/scripts/apimatic/.cache/
 
 # Local-only sandbox logins (never commit)
 local/
+
+# Screen recordings (the demo video goes to YouTube, not the repo)
+*.mp4

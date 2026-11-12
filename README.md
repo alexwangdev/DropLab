@@ -2,6 +2,8 @@
 
 **The timeline drives the money.** An AI agent plans a 3-day pop-up merch drop and shops real products. It can never move money on its own. Buyers pay with PayPal, the organizer and DropLab are paid at capture, and the **supplier's 20% is released in stages as the Gantt milestones are completed**: Ship 40%, Sell 40%, Payout 20%. Each tranche is its own PayPal Payouts batch on a hash-chained ledger.
 
+**Live demo:** https://droplab-5d3k.onrender.com (press **Load demo drop**, or **▶ Play demo** for the narrated walkthrough).
+
 PayPal **sandbox** only. Licence: [MIT](LICENSE).
 
 **Judges:** start with [docs/judge-quickstart.md](docs/judge-quickstart.md) (three steps, sandbox buyer account; the password is not published).
@@ -69,7 +71,7 @@ End-to-end bench run ([bench/results.json](bench/results.json)): order `0NP24707
 | **Bryntum** | Gantt Enterprise: dependencies with lags, drag cascade, the task editor (a date change invalidates the approval and re-books the hold), critical path, baselines, hold labels on the bars, paid milestones in green. | `client/src/components/TimelineGantt.tsx` · [critical path](docs/screenshots/gantt-critical-path.png) · [task editor](docs/screenshots/gantt-task-editor.png) |
 | **AG Grid** | Enterprise product grid (grouping, sums, pivot, filters, thumbnails), the ledger grid with verdict pills, integrated charts (price by product, payout split with staged shares labelled), and the AI Toolkit structured schema. AG Studio: a chart dashboard of the drop's live data. | `ProductGrid.tsx`, `LedgerGrid.tsx`, `PayoutChart.tsx`, `PriceChart.tsx`, `StudioPage.tsx` · [chart](docs/screenshots/ag-grid-price-chart.png) · [Studio](docs/screenshots/ag-grid-studio.png) · [Studio findings](docs/ag-grid-studio.md) |
 | **APIMatic** | PayPal context plugin 0.4.1 in Claude Code, recorded in `docs/apimatic/`. A trace builds five PayPal requests from the official specs (Orders v2 create and capture, Payouts v1, Payments v2 refund, webhook verification). | [docs/apimatic/](docs/apimatic/README.md) · [trace](docs/apimatic-trace.md) |
-| **Render** | `render.yaml` blueprint: one web service (the API also serves the built client, so they share one origin), Postgres, and a daily Channel3 price re-check cron. Not deployed yet. | [render.yaml](render.yaml) · [deploy steps](devpost/deploy-checklist.md) |
+| **Render** | `render.yaml` blueprint: one web service (the API also serves the built client, so they share one origin), Postgres, and a daily Channel3 price re-check cron. **Deployed:** https://droplab-5d3k.onrender.com | [render.yaml](render.yaml) · [deploy steps](devpost/deploy-checklist.md) |
 | **Nebius Token Factory** | The planning agent (LLM). It drafts; it never decides money. | `server/src/planner.ts` |
 
 ## Run locally
@@ -128,7 +130,6 @@ Checks: `npm run build`, `npm test` (103 tests; the route tests use a separate `
 - **No margin chart:** there is no supplier cost data.
 - **AG Studio:** the products table widget renders no rows in ag-studio 3.1.0, so the Studio dashboard is chart-only and links to the AG Grid table.
 - **Trial keys:** the AG Grid trial key deactivates on 8 December 2026 and judging runs to 15 December ([extension request](docs/ag-grid-key-extension.md)). Bryntum shows a Trial badge.
-- **Not deployed yet** on Render.
 
 ## Still to do
 

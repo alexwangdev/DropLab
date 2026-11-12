@@ -2,13 +2,14 @@
 
 DropLab is a creator-side pop-up drop planner. It runs on PayPal **sandbox** only. No real money moves.
 
-**Live URL:** `<LIVE_URL — set after the Render deploy>`. Until it is deployed, run it locally (see the README, "Run locally").
+**Live URL:** https://droplab-5d3k.onrender.com. You can also run it locally (see the README, "Run locally").
 
-## Three steps (about 2 minutes once the app is running)
+## Four steps (a few minutes once the app is running)
 
 1. **Open the storefront.** On the create page, press **Load demo drop**, then **Open storefront** on the drop page. You see the buyer's page: products with real Channel3 prices, a countdown and sell-through (`#N of M`).
 2. **Reserve with the sandbox buyer.** Press **Reserve with PayPal** on a product. On PayPal, log in with the sandbox buyer account below and approve. DropLab captures the order, and the page shows **You're in — #N of M** with the PayPal order ID.
-3. **Watch the money split.** The **Where the money goes** panel shows the captured total split 70 / 20 / 10 across the Organizer, Supplier and DropLab, with the real Payouts batch ID under each bucket.
+3. **Watch the money split.** Press **Pay creator + platform now**. One PayPal Payouts batch pays the Organizer 70% and DropLab 10%. The Supplier's 20% bucket is marked **STAGED · released by milestone**. The order, capture and batch IDs are listed once below.
+4. **Release the supplier by milestone.** Go back to the drop page. In **Supplier tranches**, press **Mark complete & release** on **Ship**: the supplier gets 40% of the pool as its own Payouts batch, the batch ID and ledger number appear, and the Ship bar on the Gantt turns green. Sell and Payout release the rest the same way, in order.
 
 The two-minute figure is not timed yet. Time it on a fresh run before quoting it.
 
