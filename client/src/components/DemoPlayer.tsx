@@ -182,6 +182,29 @@ export default function DemoPlayer() {
   const [caption, setCaption] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const [bench, setBench] = useState<Bench | null>(null);
+  // The control bar (step, time, Back / Pause / Skip / Restart) is hidden by default so the recording shows only the
+  // app and the captions. Keys: H shows or hides the bar, Space pauses or resumes. Typing in a field is never caught.
+  const [showBar, setShowBar] = useState(false);
+  const runRef = useRef(run);
+  runRef.current = run;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      const current = runRef.current;
+      if (!current || (current.status !== 'running' && current.status !== 'paused')) return;
+      if (e.key === 'h' || e.key === 'H') {
+        setShowBar((v) => !v);
+      } else if (e.key === ' ') {
+        e.preventDefault();
+        const next: Run = { ...current, status: current.status === 'running' ? 'paused' : 'running' };
+        saveRun(next);
+        setRun(next);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
   const stepKey = useRef('');
   const stepMs = useRef(0);
   const ended = useRef(false);
@@ -364,6 +387,7 @@ export default function DemoPlayer() {
           <h2>DropLab demo · about 2:50 · narration on</h2>
           <p>Press Start, then don&apos;t touch anything. The demo clicks, scrolls and speaks by itself.</p>
           <p className="demo-muted">Speech needs this click to start. Without a voice, captions still run.</p>
+          <p className="demo-muted">The control bar stays hidden while recording. Press <kbd>H</kbd> to show it, <kbd>Space</kbd> to pause or resume.</p>
           <button
             onClick={async () => {
               // Audio playback needs this click too: unlock the narration element with the first clip (paused at once).
@@ -483,7 +507,7 @@ export default function DemoPlayer() {
   return (
     <>
       <div className="demo-caption" aria-live="polite">{caption}</div>
-      <div className="demo-bar">
+      {showBar && <div className="demo-bar">
         <div className="demo-progress"><div style={{ transform: `scaleX(${Math.min(1, run.index / steps.length)})` }} /></div>
         <span>
           Step {stepNo} of {steps.length} · Act {shown?.act ?? '—'} · {formatTime(run.elapsedMs)} / {formatTime(totalMs)}
@@ -497,7 +521,7 @@ export default function DemoPlayer() {
           <button className="demo-secondary" onClick={advance}>Skip ›</button>
           <button className="demo-secondary" onClick={() => { stopSpeech(); clearHighlight(); stepKey.current = ''; update({ index: 0, elapsedMs: 0, status: 'running' }); }}>Restart</button>
         </div>
-      </div>
+      </div>}
       {run.status === 'paused' && <div className="demo-paused">Paused</div>}
     </>
   );
