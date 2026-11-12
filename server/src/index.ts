@@ -665,13 +665,17 @@ app.get('/api/paypal/payouts/:batch_id', route(async (req, res) => {
         local_record: false,
       });
     }
+    const items = record.items.map((i) => {
+      const s = byId.get(i.sender_item_id);
+      return { ...i, status: s?.status ?? 'UNKNOWN', error: s?.error ?? null };
+    });
+    // The batch pays only the organizer and DropLab; the supplier's share is staged and never a PayPal item. Report it
+    // the same way the payout route does, so a status refresh does not drop the supplier's share from the split.
+    const order = await store.getOrder(record.order_id);
     res.json({
       paypal_batch_id: record.batch_id,
       batch_status: result.batch_header?.batch_status ?? null,
-      items: record.items.map((i) => {
-        const s = byId.get(i.sender_item_id);
-        return { ...i, status: s?.status ?? 'UNKNOWN', error: s?.error ?? null };
-      }),
+      items: order ? withStaged(items, order) : items,
       local_record: true,
     });
   } catch (e) {
